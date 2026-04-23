@@ -1,0 +1,12 @@
+# OpenRadiusWeb CoA Service
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY shared/ /app/shared/
+RUN pip install --no-cache-dir /app/shared/
+COPY services/auth/coa_manager.py /app/
+COPY services/auth/coa_service.py /app/
+
+ENV PYTHONPATH=/app
+CMD ["python", "coa_service.py"]

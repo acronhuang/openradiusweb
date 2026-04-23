@@ -1,0 +1,164 @@
+# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY
+# Generated at: {{ generated_at }}
+#
+# Inner tunnel virtual server for PEAP/TTLS Phase 2
+# Template: site_inner_tunnel.j2
+#
+# This virtual server handles the inner (decrypted) authentication
+# within PEAP and EAP-TTLS tunnels. The outer EAP negotiation occurs
+# in the "default" server; once the TLS tunnel is established, the
+# inner credentials are forwarded here for actual identity verification.
+
+server inner-tunnel {
+
+    #
+    # Inner tunnel listener - only accepts requests from the
+    # outer EAP module, not from the network
+    #
+    listen {
+        ipaddr = 127.0.0.1
+        port = 18120
+        type = auth
+    }
+
+    #
+    # Authorization / policy evaluation (inner tunnel)
+    #
+    authorize {
+{% if realms_enabled is defined and realms_enabled %}
+        #
+        # Realm processing for inner identity
+        # The inner User-Name may differ from the outer identity
+        #
+        filter_username
+        suffix
+{% if realm_prefix_enabled is defined and realm_prefix_enabled %}
+        ntdomain
+{% endif %}
+{% endif %}
+
+        #
+        # Update the inner request with outer tunnel attributes
+        #
+        update control {
+            &Proxy-To-Realm := LOCAL
+        }
+
+        #
+        # EAP module - handles inner EAP methods (MSCHAPv2, GTC, etc.)
+        #
+        eap {
+            ok = return
+        }
+
+{% for ldap_mod in ldap_modules %}
+        #
+        # LDAP authorization: {{ ldap_mod.name }}
+        #
+        {{ ldap_mod.module_name }}
+{% endfor %}
+
+        #
+        # MS-CHAP module - needed for PEAP-MSCHAPv2
+        #
+        mschap
+
+        #
+        # PAP module - needed for TTLS-PAP and GTC
+        #
+        pap
+
+        #
+        # OpenRadiusWeb inner tunnel authorization
+        #
+        orw
+    }
+
+    #
+    # Authentication methods (inner tunnel)
+    #
+    authenticate {
+        #
+        # Inner EAP (MSCHAPv2 within PEAP, etc.)
+        #
+        Auth-Type EAP {
+            eap
+        }
+
+        #
+        # MS-CHAP v2 authentication
+        # Primary method for PEAP-MSCHAPv2
+        #
+        Auth-Type MS-CHAP {
+            mschap
+        }
+
+        #
+        # PAP authentication
+        # Used for TTLS-PAP and EAP-GTC
+        #
+        Auth-Type PAP {
+            pap
+        }
+
+{% for ldap_mod in ldap_modules %}
+        #
+        # LDAP bind authentication: {{ ldap_mod.name }}
+        #
+        Auth-Type {{ ldap_mod.module_name }} {
+            {{ ldap_mod.module_name }}
+        }
+
+{% endfor %}
+    }
+
+    #
+    # Post-authentication processing (inner tunnel)
+    #
+    post-auth {
+        #
+        # OpenRadiusWeb inner tunnel post-auth
+        # Applies policies, VLAN assignments, etc.
+        #
+        orw
+
+        #
+        # Copy reply attributes to outer session state
+        # so they are available after the tunnel closes
+        #
+        update {
+            &reply: += &session-state:
+        }
+
+        #
+        # Handle inner tunnel rejections
+        #
+        Post-Auth-Type REJECT {
+            #
+            # OpenRadiusWeb inner rejection handling
+            #
+            orw
+
+            attr_filter.access_reject
+
+            update {
+                &reply: += &session-state:
+            }
+        }
+    }
+
+{% if realms_enabled is defined and realms_enabled %}
+    #
+    # Pre-proxy (inner tunnel)
+    #
+    pre-proxy {
+    }
+
+    #
+    # Post-proxy (inner tunnel)
+    #
+    post-proxy {
+        eap
+    }
+{% endif %}
+}

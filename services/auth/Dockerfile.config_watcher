@@ -1,0 +1,16 @@
+# OpenRadiusWeb FreeRADIUS Config Watcher
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y docker.io && apt-get clean
+
+COPY shared/ /app/shared/
+RUN pip install --no-cache-dir /app/shared/
+RUN pip install --no-cache-dir jinja2 cryptography psycopg2-binary nats-py
+
+COPY services/auth/freeradius_config_manager.py /app/
+COPY services/auth/freeradius_config_watcher.py /app/
+COPY services/auth/freeradius/templates/ /app/templates/
+
+CMD ["python", "freeradius_config_watcher.py"]

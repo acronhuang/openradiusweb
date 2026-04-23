@@ -1,0 +1,120 @@
+# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY
+# Generated at: {{ generated_at }}
+#
+# EAP module configuration
+# Template: eap.j2
+
+eap {
+    default_eap_type = {{ default_eap_type | default("peap") }}
+    timer_expire = {{ timer_expire | default(60) }}
+    ignore_unknown_eap_types = no
+    cisco_accounting_username_bug = no
+    max_sessions = {{ max_sessions | default(4096) }}
+
+    #
+    # TLS common configuration - shared by EAP-TLS, PEAP, TTLS
+    #
+    tls-config tls-common {
+        private_key_password =
+        private_key_file = {{ server_key_path | default("/etc/freeradius/certs/server/server.key") }}
+        certificate_file = {{ server_cert_path | default("/etc/freeradius/certs/server/server.pem") }}
+        ca_file = {{ ca_cert_path | default("/etc/freeradius/certs/ca/ca.pem") }}
+        ca_path = {{ ca_path | default("/etc/freeradius/certs/trusted-cas/") }}
+
+{% if dh_file is defined and dh_file %}
+        dh_file = {{ dh_file }}
+{% endif %}
+
+        auto_chain = yes
+
+        #
+        # TLS version constraints
+        #
+        tls_min_version = "{{ tls_min_version | default("1.2") }}"
+        tls_max_version = "{{ tls_max_version | default("1.3") }}"
+
+        #
+        # Cipher list
+        #
+        cipher_list = "{{ cipher_list | default("DEFAULT") }}"
+
+        #
+        # Elliptic curve selection
+        #
+        ecdh_curve = "prime256v1"
+
+{% if crl_check_enabled is defined and crl_check_enabled %}
+        #
+        # CRL checking enabled
+        #
+        check_crl = yes
+{% if crl_dir is defined and crl_dir %}
+        ca_path = {{ crl_dir }}
+{% endif %}
+{% else %}
+        check_crl = no
+{% endif %}
+
+{% if ocsp_enabled is defined and ocsp_enabled %}
+        #
+        # OCSP stapling / validation
+        #
+        ocsp {
+            enable = yes
+            override_cert_url = {{ "yes" if (ocsp_url is defined and ocsp_url) else "no" }}
+{% if ocsp_url is defined and ocsp_url %}
+            url = "{{ ocsp_url }}"
+{% endif %}
+            use_nonce = yes
+            timeout = {{ ocsp_timeout | default(5) }}
+            softfail = {{ "yes" if (ocsp_softfail is defined and ocsp_softfail) else "no" }}
+        }
+{% endif %}
+
+        #
+        # TLS session cache
+        #
+        cache {
+            enable = yes
+            lifetime = {{ cache_lifetime | default(24) }}
+            name = "OpenRadiusWeb TLS Session Cache"
+            max_entries = {{ cache_max_entries | default(255) }}
+        }
+    }
+
+    #
+    # EAP-TLS authentication (certificate-based)
+    #
+    tls {
+        tls = tls-common
+        virtual_server = check-eap-tls
+    }
+
+    #
+    # PEAP authentication (Protected EAP)
+    #
+    peap {
+        tls = tls-common
+        default_eap_type = mschapv2
+        copy_request_to_tunnel = yes
+        use_tunneled_reply = yes
+        virtual_server = "inner-tunnel"
+    }
+
+    #
+    # EAP-TTLS authentication (Tunneled TLS)
+    #
+    ttls {
+        tls = tls-common
+        default_eap_type = mschapv2
+        copy_request_to_tunnel = yes
+        use_tunneled_reply = yes
+        virtual_server = "inner-tunnel"
+    }
+
+    #
+    # EAP-MSCHAPv2 (inner method for PEAP/TTLS)
+    #
+    mschapv2 {
+    }
+}

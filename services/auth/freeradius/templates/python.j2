@@ -1,0 +1,53 @@
+# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY
+# Generated at: {{ generated_at }}
+#
+# Python module configuration (mods-available/python)
+# Template: python.j2
+#
+# Configures rlm_python3 to load the OpenRadiusWeb (orw) RADIUS module.
+# The orw module handles custom authorization, authentication, post-auth,
+# and accounting logic via Python callbacks.
+
+python orw {
+    module = orw
+
+    python_path = {{ python_path | default("/opt/openradiusweb/radius") }}
+
+{% if python_path_extra is defined and python_path_extra %}
+    python_path = "${..python_path}:{{ python_path_extra }}"
+{% endif %}
+
+    #
+    # Module function mappings
+    # Each maps a FreeRADIUS processing section to a Python function
+    #
+
+    mod_instantiate = "${.module}"
+    func_instantiate = instantiate
+
+    mod_authorize = "${.module}"
+    func_authorize = authorize
+
+    mod_authenticate = "${.module}"
+    func_authenticate = authenticate
+
+    mod_post_auth = "${.module}"
+    func_post_auth = post_auth
+
+    mod_accounting = "${.module}"
+    func_accounting = accounting
+
+    mod_detach = "${.module}"
+    func_detach = detach
+
+{% if orw_config is defined and orw_config %}
+    #
+    # Configuration variables passed to the Python module
+    #
+    config {
+{% for key, value in orw_config.items() %}
+        {{ key }} = "{{ value }}"
+{% endfor %}
+    }
+{% endif %}
+}

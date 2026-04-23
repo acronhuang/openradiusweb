@@ -1,0 +1,285 @@
+version: "3.9"
+
+# ============================================================
+# OpenRadiusWeb Production Deployment
+# Web: ${ORW_WEB_PORT:-8888} | API: ${ORW_API_PORT:-8000}
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+# ============================================================
+
+services:
+  # ============================================================
+  # Infrastructure
+  # ============================================================
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: orw-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: orw
+      POSTGRES_USER: orw
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"    # Only localhost
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./migrations/002_settings_radius_features.sql:/docker-entrypoint-initdb.d/02-settings-radius.sql
+      - ./migrations/seed.sql:/docker-entrypoint-initdb.d/03-seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - orw-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: orw-redis
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:6379:6379"                      # Only localhost
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - orw-net
+
+  nats:
+    image: nats:2-alpine
+    container_name: orw-nats
+    restart: always
+    command: "--js --sd /data --http_port 8222"
+    ports:
+      - "127.0.0.1:${NATS_PORT:-4222}:4222"        # Only localhost
+      - "127.0.0.1:8222:8222"                       # Monitoring
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - orw-net
+
+  # ============================================================
+  # Frontend (Nginx + React) - Port 8888
+  # ============================================================
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.prod
+    container_name: orw-frontend
+    restart: always
+    ports:
+      - "${ORW_WEB_PORT:-8888}:80"                  # Web UI on 8888
+    depends_on:
+      gateway:
+        condition: service_started
+    networks:
+      - orw-net
+
+  # ============================================================
+  # API Gateway
+  # ============================================================
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    container_name: orw-gateway
+    restart: always
+    ports:
+      - "${ORW_API_PORT:-8000}:8000"                # API
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://orw:${DB_PASSWORD}@postgres:5432/orw
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - NATS_URL=nats://nats:4222
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - orw-net
+
+  # ============================================================
+  # Application Services
+  # ============================================================
+  discovery:
+    build:
+      context: .
+      dockerfile: services/discovery/Dockerfile
+    container_name: orw-discovery
+    restart: always
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://orw:${DB_PASSWORD}@127.0.0.1:5432/orw
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@127.0.0.1:6379/0
+      - NATS_URL=nats://127.0.0.1:4222
+      - SCAN_INTERFACE=${SCAN_INTERFACE:-eth0}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  device_inventory:
+    build:
+      context: .
+      dockerfile: services/device_inventory/Dockerfile
+    container_name: orw-device-inventory
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://orw:${DB_PASSWORD}@postgres:5432/orw
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - NATS_URL=nats://nats:4222
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - orw-net
+
+  switch_mgmt:
+    build:
+      context: .
+      dockerfile: services/switch_mgmt/Dockerfile
+    container_name: orw-switch-mgmt
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://orw:${DB_PASSWORD}@postgres:5432/orw
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - NATS_URL=nats://nats:4222
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - orw-net
+
+  policy_engine:
+    build:
+      context: .
+      dockerfile: services/policy_engine/Dockerfile
+    container_name: orw-policy-engine
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://orw:${DB_PASSWORD}@postgres:5432/orw
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+      - NATS_URL=nats://nats:4222
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - orw-net
+
+  # ============================================================
+  # FreeRADIUS (802.1X Authentication)
+  # ============================================================
+  freeradius:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile.freeradius
+    container_name: orw-freeradius
+    restart: always
+    ports:
+      - "${RADIUS_AUTH_PORT:-1812}:1812/udp"        # RADIUS Auth
+      - "${RADIUS_ACCT_PORT:-1813}:1813/udp"        # RADIUS Accounting
+    environment:
+      - ORW_DB_URL=postgresql://orw:${DB_PASSWORD}@postgres:5432/orw
+      - ORW_NATS_URL=nats://nats:4222
+      - ORW_TENANT_ID=${ORW_TENANT_ID:-}
+    volumes:
+      - freeradius_config:/etc/freeradius/orw-managed
+      - freeradius_certs:/etc/freeradius/certs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - orw-net
+
+  freeradius_config_watcher:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile.config_watcher
+    container_name: orw-freeradius-config-watcher
+    restart: always
+    environment:
+      - ORW_DB_URL=postgresql://orw:${DB_PASSWORD}@postgres:5432/orw
+      - NATS_URL=nats://nats:4222
+      - FREERADIUS_CONTAINER=orw-freeradius
+      - ORW_TEMPLATE_DIR=/app/templates
+    volumes:
+      - freeradius_config:/etc/freeradius/orw-managed
+      - freeradius_certs:/etc/freeradius/certs
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      freeradius:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - orw-net
+
+  # ============================================================
+  # CoA Service (Change of Authorization)
+  # ============================================================
+  coa_service:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile.coa
+    container_name: orw-coa
+    restart: always
+    ports:
+      - "${RADIUS_COA_PORT:-3799}:3799/udp"         # CoA listen (optional)
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://orw:${DB_PASSWORD}@postgres:5432/orw
+      - NATS_URL=nats://nats:4222
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - orw-net
+
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:
+  freeradius_config:
+  freeradius_certs:
+
+networks:
+  orw-net:
+    driver: bridge

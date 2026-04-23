@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+
+# Environment & Secrets
+.env
+.env.production
+.secrets/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Node (frontend)
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Logs
+*.log
+logs/
+
+# Backups
+backups/
+
+# Deploy scripts (development-only hotfix scripts)
+deploy/upload_*.py
+deploy/fix_*.py
+deploy/reset_*.py
+deploy/check_*.py
+deploy/rebuild_*.py
+deploy/restart_*.py
+deploy/get_*.py
+deploy/verify_*.py
+deploy/sftp_*.txt
+deploy/sync_*.sh
+deploy/test_*.sh

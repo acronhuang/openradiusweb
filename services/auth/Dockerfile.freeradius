@@ -1,0 +1,36 @@
+# OpenRadiusWeb FreeRADIUS with rlm_python3, EAP-TLS, LDAP support
+FROM freeradius/freeradius-server:3.2.3
+
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip libpython3-dev \
+    && pip3 install --no-cache-dir \
+       psycopg2-binary nats-py jinja2 cryptography ldap3 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create directory structure for managed configs and certificates
+RUN mkdir -p /etc/freeradius/orw-managed/mods-available \
+             /etc/freeradius/orw-managed/sites-available \
+             /etc/freeradius/certs/ca \
+             /etc/freeradius/certs/server \
+             /etc/freeradius/certs/trusted-cas \
+             /etc/freeradius/certs/crl \
+             /opt/orw
+
+# Copy OpenRadiusWeb FreeRADIUS Python module
+COPY services/auth/freeradius/mods-config/python/rlm_orw.py \
+     /etc/freeradius/mods-config/python/orw.py
+
+# Copy Jinja2 config templates
+COPY services/auth/freeradius/templates/ \
+     /etc/freeradius/orw-templates/
+
+# Copy config manager and entrypoint
+COPY services/auth/freeradius_config_manager.py /opt/orw/
+COPY services/auth/freeradius_entrypoint.sh /opt/orw/
+
+RUN chmod +x /opt/orw/freeradius_entrypoint.sh
+
+EXPOSE 1812/udp 1813/udp
+
+ENTRYPOINT ["/opt/orw/freeradius_entrypoint.sh"]
+CMD ["freeradius", "-f"]

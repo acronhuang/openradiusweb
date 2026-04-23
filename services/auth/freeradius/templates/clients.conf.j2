@@ -1,0 +1,56 @@
+# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY
+# Generated at: {{ generated_at }}
+#
+# RADIUS NAS client definitions
+# Template: clients.conf.j2
+#
+# Each entry defines a network device (switch, AP, controller) authorized
+# to send RADIUS requests to this server.
+
+{% for client in nas_clients %}
+#
+# {{ client.shortname | default(client.name | default("client")) }}
+# {% if client.description is defined and client.description %}{{ client.description }}{% endif %}
+
+#
+client {{ client.shortname | default(client.name | default("client_" ~ loop.index)) }} {
+    ipaddr = {{ client.ipaddr }}
+{% if client.netmask is defined and client.netmask %}
+    netmask = {{ client.netmask }}
+{% endif %}
+    secret = {{ client.secret }}
+{% if client.nastype is defined and client.nastype %}
+    nastype = {{ client.nastype }}
+{% else %}
+    nastype = other
+{% endif %}
+    shortname = {{ client.shortname | default(client.name | default("client_" ~ loop.index)) }}
+{% if client.virtual_server is defined and client.virtual_server %}
+    virtual_server = {{ client.virtual_server }}
+{% endif %}
+{% if client.require_message_authenticator is defined %}
+    require_message_authenticator = {{ "yes" if client.require_message_authenticator else "no" }}
+{% endif %}
+{% if client.coa_server is defined and client.coa_server %}
+    coa_server = {{ client.coa_server }}
+{% endif %}
+{% if client.response_window is defined and client.response_window %}
+    response_window = {{ client.response_window }}
+{% endif %}
+{% if client.limit is defined %}
+
+    limit {
+{% if client.limit.max_connections is defined %}
+        max_connections = {{ client.limit.max_connections }}
+{% endif %}
+{% if client.limit.lifetime is defined %}
+        lifetime = {{ client.limit.lifetime }}
+{% endif %}
+{% if client.limit.idle_timeout is defined %}
+        idle_timeout = {{ client.limit.idle_timeout }}
+{% endif %}
+    }
+{% endif %}
+}
+
+{% endfor %}

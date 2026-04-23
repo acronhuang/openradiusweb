@@ -1,0 +1,239 @@
+# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY
+# Generated at: {{ generated_at }}
+#
+# Main virtual server (sites-available/default)
+# Template: site_default.j2
+#
+# This is the outer authentication virtual server that handles
+# all incoming RADIUS authentication and accounting requests.
+
+server default {
+
+    #
+    # Authentication listener - binds to all interfaces
+    #
+    listen {
+        type = auth
+        ipaddr = *
+        port = 0
+        limit {
+            max_connections = {{ max_connections | default(16) }}
+            lifetime = 0
+            idle_timeout = 30
+        }
+    }
+
+    #
+    # Accounting listener - binds to all interfaces
+    #
+    listen {
+        type = acct
+        ipaddr = *
+        port = 0
+        limit {
+            max_connections = {{ max_connections | default(16) }}
+            lifetime = 0
+            idle_timeout = 30
+        }
+    }
+
+    #
+    # Authorization / policy evaluation
+    # Determines how the user should be authenticated.
+    #
+    authorize {
+{% if realms_enabled is defined and realms_enabled %}
+        #
+        # Realm processing - split User-Name into user and realm
+        #
+        filter_username
+        suffix
+{% if realm_prefix_enabled is defined and realm_prefix_enabled %}
+        ntdomain
+{% endif %}
+{% endif %}
+
+        #
+        # Standard request preprocessing
+        #
+        preprocess
+
+        #
+        # Huntgroup matching (if configured)
+        #
+        # chap
+        # mschap
+
+        #
+        # EAP module - sets up EAP-Message handling
+        # Must come before LDAP so EAP state is initialized
+        #
+        eap {
+            ok = return
+        }
+
+{% for ldap_mod in ldap_modules %}
+        #
+        # LDAP authorization: {{ ldap_mod.name }}
+        #
+        {{ ldap_mod.module_name }}
+{% endfor %}
+
+        #
+        # OpenRadiusWeb Python authorization module
+        # Performs custom policy checks, device profiling, etc.
+        #
+        orw
+
+        #
+        # Session validity checks
+        #
+        expiration
+        logintime
+
+        #
+        # PAP module - needed if any backend returns Cleartext-Password
+        #
+        pap
+    }
+
+    #
+    # Authentication methods
+    # Actually verifies the user's credentials.
+    #
+    authenticate {
+        #
+        # EAP authentication (PEAP, EAP-TLS, EAP-TTLS)
+        # Handles the outer EAP negotiation
+        #
+        Auth-Type EAP {
+            eap
+        }
+
+{% for ldap_mod in ldap_modules %}
+        #
+        # LDAP bind authentication: {{ ldap_mod.name }}
+        #
+        Auth-Type {{ ldap_mod.module_name }} {
+            {{ ldap_mod.module_name }}
+        }
+
+{% endfor %}
+        #
+        # PAP - needed for LDAP bind auth fallback
+        #
+        Auth-Type PAP {
+            pap
+        }
+
+        #
+        # MS-CHAP authentication (for NTLM pass-through)
+        #
+        Auth-Type MS-CHAP {
+            mschap
+        }
+    }
+
+    #
+    # Post-authentication processing
+    # Runs after successful authentication.
+    #
+    post-auth {
+        #
+        # Update reply attributes from control attributes
+        #
+        update {
+            &reply: += &session-state:
+        }
+
+        #
+        # OpenRadiusWeb post-auth processing
+        # Assigns VLANs, ACLs, and logs authentication results
+        #
+        orw
+
+        #
+        # Remove temporary proxy-state attributes
+        #
+        remove_reply_message_authenticator
+
+        #
+        # Handle authentication rejections
+        #
+        Post-Auth-Type REJECT {
+            #
+            # OpenRadiusWeb rejection handling
+            # Logs failed authentication attempts
+            #
+            orw
+
+            #
+            # Insert short delay to throttle brute-force attacks
+            #
+            attr_filter.access_reject
+
+            #
+            # Update reply attributes even on reject
+            #
+            update {
+                &reply: += &session-state:
+            }
+        }
+    }
+
+    #
+    # Pre-proxy processing (if proxying is configured)
+    #
+{% if realms_enabled is defined and realms_enabled %}
+    pre-proxy {
+    }
+
+    #
+    # Post-proxy processing
+    #
+    post-proxy {
+        eap
+    }
+{% endif %}
+
+    #
+    # Accounting processing
+    # Handles Start, Interim-Update, and Stop accounting packets.
+    #
+    accounting {
+        #
+        # OpenRadiusWeb accounting handler
+        # Tracks session state, gathers endpoint telemetry
+        #
+        orw
+
+        #
+        # Write accounting detail files for audit trail
+        #
+        detail
+
+        #
+        # Standard Unix accounting (utmp/wtmp)
+        #
+        # unix
+
+        #
+        # Update session database
+        #
+        # radutmp
+
+        #
+        # Preprocess accounting requests
+        #
+        preprocess
+
+{% for ldap_mod in ldap_modules %}
+        #
+        # LDAP accounting: {{ ldap_mod.name }}
+        #
+        {{ ldap_mod.module_name }}
+{% endfor %}
+
+        attr_filter.accounting_response
+    }
+}

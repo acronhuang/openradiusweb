@@ -1,0 +1,1 @@
+# Device Inventory uses shared library dependencies only

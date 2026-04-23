@@ -1,0 +1,118 @@
+# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY
+# Generated at: {{ generated_at }}
+#
+# LDAP module configuration
+# Template: ldap.j2
+#
+# Each LDAP server is instantiated as a named module: ldap_<sanitized_name>
+# These can be referenced in virtual server authorize/authenticate sections.
+
+{% for server in ldap_servers %}
+#
+# LDAP instance: {{ server.name | default(server.module_name) }}
+# Server: {{ server.host }}:{{ server.port }}
+#
+ldap {{ server.module_name }} {
+    server = "{{ server.host }}"
+    port = {{ server.port }}
+
+    identity = "{{ server.bind_dn }}"
+    password = "{{ server.bind_password }}"
+    base_dn = "{{ server.base_dn }}"
+
+    #
+    # User object search configuration
+    #
+    user {
+        base_dn = "{{ server.user_search_base | default(server.base_dn) }}"
+        filter = "{{ server.user_search_filter | default("(sAMAccountName=%{%{Stripped-User-Name}:-%{User-Name}})") }}"
+{% if server.user_scope is defined and server.user_scope %}
+        scope = "{{ server.user_scope }}"
+{% else %}
+        scope = "sub"
+{% endif %}
+
+{% if server.user_access_attr is defined and server.user_access_attr %}
+        access_attribute = "{{ server.user_access_attr }}"
+{% endif %}
+    }
+
+    #
+    # Group object search configuration
+    #
+    group {
+        base_dn = "{{ server.group_search_base | default(server.base_dn) }}"
+        filter = "{{ server.group_search_filter | default("(objectClass=group)") }}"
+        membership_attribute = "{{ server.group_membership_attr | default("memberOf") }}"
+{% if server.group_scope is defined and server.group_scope %}
+        scope = "{{ server.group_scope }}"
+{% else %}
+        scope = "sub"
+{% endif %}
+{% if server.group_name_attr is defined and server.group_name_attr %}
+        name_attribute = "{{ server.group_name_attr }}"
+{% endif %}
+{% if server.group_cacheable is defined and server.group_cacheable %}
+        cacheable_name = yes
+        cacheable_dn = yes
+{% endif %}
+    }
+
+    #
+    # LDAP connection options
+    #
+    options {
+        chase_referrals = {{ "yes" if (server.chase_referrals is not defined or server.chase_referrals) else "no" }}
+        rebind = yes
+        res_timeout = {{ server.search_timeout_seconds | default(10) }}
+        srv_timelimit = {{ server.search_timeout_seconds | default(10) }}
+        net_timeout = {{ server.connect_timeout_seconds | default(3) }}
+        idle = {{ server.idle_timeout_seconds | default(60) }}
+        probes = 3
+        interval = 3
+    }
+
+{% if server.use_tls is defined and server.use_tls or server.use_starttls is defined and server.use_starttls %}
+    #
+    # TLS / STARTTLS configuration
+    #
+    tls {
+{% if server.use_starttls is defined and server.use_starttls %}
+        start_tls = yes
+{% endif %}
+{% if server.tls_ca_cert_path is defined and server.tls_ca_cert_path %}
+        ca_file = "{{ server.tls_ca_cert_path }}"
+{% endif %}
+{% if server.tls_cert_path is defined and server.tls_cert_path %}
+        certificate_file = "{{ server.tls_cert_path }}"
+{% endif %}
+{% if server.tls_key_path is defined and server.tls_key_path %}
+        private_key_file = "{{ server.tls_key_path }}"
+{% endif %}
+{% if server.tls_require_cert is defined and server.tls_require_cert %}
+        require_cert = "{{ server.tls_require_cert }}"
+{% else %}
+        require_cert = "demand"
+{% endif %}
+{% if server.tls_min_version is defined and server.tls_min_version %}
+        tls_min_version = "{{ server.tls_min_version }}"
+{% endif %}
+    }
+{% endif %}
+
+    #
+    # Connection pool
+    #
+    pool {
+        start = {{ server.pool_start | default(5) }}
+        min = {{ server.pool_min | default(3) }}
+        max = {{ server.pool_max | default(32) }}
+        spare = {{ server.pool_spare | default(3) }}
+        uses = {{ server.pool_uses | default(0) }}
+        retry_delay = {{ server.pool_retry_delay | default(30) }}
+        lifetime = {{ server.pool_lifetime | default(0) }}
+        idle_timeout = {{ server.pool_idle_timeout | default(60) }}
+    }
+}
+
+{% endfor %}

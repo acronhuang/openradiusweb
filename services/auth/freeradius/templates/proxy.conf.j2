@@ -1,0 +1,103 @@
+# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY
+# Generated at: {{ generated_at }}
+#
+# Proxy / Realm configuration
+# Template: proxy.conf.j2
+#
+# Defines home servers, pools, and realms for RADIUS proxying.
+# Realm types: proxy (forward to remote RADIUS), local (authenticate locally),
+#              reject (deny authentication for realm).
+
+proxy server {
+    default_fallback = no
+}
+
+{% for realm in realms %}
+{% if realm.type == "proxy" %}
+#
+# Realm: {{ realm.name }} (proxied to remote RADIUS server)
+#
+{% for hs in realm.home_servers %}
+home_server {{ hs.name }} {
+    type = auth{% if hs.acct_port is defined and hs.acct_port %}+acct{% endif %}
+
+    ipaddr = {{ hs.ipaddr }}
+    port = {{ hs.auth_port | default(1812) }}
+    secret = {{ hs.secret }}
+
+    response_window = {{ hs.response_window | default(20) }}
+    zombie_period = {{ hs.zombie_period | default(40) }}
+    revive_interval = {{ hs.revive_interval | default(120) }}
+
+    status_check = {{ hs.status_check | default("status-server") }}
+    check_interval = {{ hs.check_interval | default(30) }}
+    check_timeout = {{ hs.check_timeout | default(4) }}
+    num_answers_to_alive = {{ hs.num_answers_to_alive | default(3) }}
+}
+
+{% endfor %}
+home_server_pool pool_{{ realm.name | replace(".", "_") | replace("-", "_") | replace(" ", "_") }} {
+    type = {{ realm.pool_type | default("fail-over") }}
+{% for hs in realm.home_servers %}
+    home_server = {{ hs.name }}
+{% endfor %}
+{% if realm.fallback_enabled is defined and realm.fallback_enabled %}
+    fallback = yes
+{% endif %}
+}
+
+realm {{ realm.name }} {
+    pool = pool_{{ realm.name | replace(".", "_") | replace("-", "_") | replace(" ", "_") }}
+{% if realm.strip_realm is defined %}
+    nostrip = {{ "no" if realm.strip_realm else "yes" }}
+{% else %}
+    nostrip
+{% endif %}
+}
+
+{% elif realm.type == "local" %}
+#
+# Realm: {{ realm.name }} (local authentication)
+#
+realm {{ realm.name }} {
+{% if realm.strip_realm is defined %}
+    nostrip = {{ "no" if realm.strip_realm else "yes" }}
+{% endif %}
+}
+
+{% elif realm.type == "reject" %}
+#
+# Realm: {{ realm.name }} (reject all requests)
+#
+realm {{ realm.name }} {
+    # No pool defined - requests for this realm are rejected
+    nostrip
+}
+
+{% endif %}
+{% endfor %}
+
+#
+# Default realm - handles unqualified usernames (no @domain)
+# and usernames with unknown realms
+#
+{% if default_realm is defined and default_realm %}
+realm {{ default_realm }} {
+}
+{% endif %}
+
+#
+# NULL realm - matches usernames with no realm component
+# (e.g., "bob" as opposed to "bob@example.com")
+#
+realm NULL {
+}
+
+#
+# DEFAULT realm - catch-all for any realm not explicitly matched above
+#
+realm DEFAULT {
+{% if default_realm_nostrip is defined and default_realm_nostrip %}
+    nostrip
+{% endif %}
+}
