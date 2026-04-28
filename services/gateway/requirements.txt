@@ -13,3 +13,5 @@ asyncpg>=0.29
 nats-py>=2.6
 # Structured logging — orw_common.logging.
 structlog>=23.0
+# Pydantic v2 split BaseSettings into its own package — orw_common.config uses it.
+pydantic-settings>=2.0
