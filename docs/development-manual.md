@@ -1,7 +1,7 @@
 # OpenRadiusWeb — Development Manual
 
-**Version:** 1.3
-**Date:** 2026-04-28
+**Version:** 1.4
+**Date:** 2026-04-29
 **Audience:** Developers, code reviewers, architects working on OpenRadiusWeb
 **Languages:** English (this file) · 中文 ([development-manual.zh.md](development-manual.zh.md))
 
@@ -9,8 +9,25 @@ This manual is the consolidated reference for understanding what the project doe
 
 ---
 
+## Development Principles
+
+> **Build features as the smallest possible modules.**
+>
+> - **Goal:** achieve high cohesion and low coupling so the system stays easy to test and easy to replace.
+> - **Means:** decompose every requirement into atomic modules — each module does exactly one thing.
+
+The rest of this manual elaborates on this principle:
+
+- [§3 Atomic Module Catalog](#part-3--atomic-module-catalog) — inventory of ~600 atoms across 19 patterns
+- [§5.1 Eight Rules for Atomic Code](#51-eight-rules-for-atomic-code) — how to write a single atom
+- [§9.1 Three-Layer Architecture](#91-three-layer-architecture) — interface / service / infrastructure layering
+- [§10.6 Standard Directory Structure](#106-standard-directory-structure-feature-oriented-recursively-modular) — wrapping atoms with `features/<name>/`
+
+---
+
 ## Table of Contents
 
+0. [Development Principles](#development-principles)
 1. [Project Requirements](#part-1--project-requirements)
 2. [Core Feature Inventory](#part-2--core-feature-inventory)
 3. [Atomic Module Catalog](#part-3--atomic-module-catalog)
@@ -2354,5 +2371,6 @@ The existing `services/gateway/routes/<resource>.py` files are transitional. Mig
 | 1.1 | 2026-04-27 | Added Part 7 (API Spec) and Part 8 (Decoupling Design); bilingual EN/ZH |
 | 1.2 | 2026-04-27 | Added Part 9 (Development Workflow) and Part 10 (Unified Deployment Strategy) |
 | 1.3 | 2026-04-28 | §5.4 and §10.6: promoted feature-oriented (`features/<name>/`) directory layout to standard; flat `routes/` reframed as transitional with concrete migration triggers; lint enforcement added (`make lint-features`) |
+| 1.4 | 2026-04-29 | Added "Development Principles" preface ("build features as the smallest possible modules") above §1, with cross-links to §3 / §5.1 / §9.1 / §10.6 |
 
 This manual supersedes the earlier separate analyses (`roadmap.md`, `feature-breakdown.md`, `atomic-modules.md` — now removed).
