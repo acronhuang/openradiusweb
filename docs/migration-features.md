@@ -2,7 +2,7 @@
 
 Tracks the migration of `services/gateway/routes/<resource>.py` files into the standard feature-oriented layout `services/gateway/features/<name>/` per [development-manual.md §10.6.3](development-manual.md#1063-migration-path-for-the-existing-flat-routes).
 
-**Last updated:** 2026-04-28 (4 routes migrated: `auth/`, `profile/`, `health/`, `vlans/`)
+**Last updated:** 2026-04-29 (5 routes migrated: `auth/`, `profile/`, `health/`, `vlans/`, `nas_clients/`)
 
 ## Status Legend
 
@@ -26,7 +26,7 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 | `[ ]` | `routes/coa.py` | `features/coa/` | 8 — CoA | Has NATS publisher → needs `events.py` |
 | `[ ]` | `routes/ldap_servers.py` | `features/ldap_servers/` | 9 — RADIUS config | Standard CRUD |
 | `[ ]` | `routes/radius_realms.py` | `features/radius_realms/` | 9 — RADIUS config | Standard CRUD |
-| `[ ]` | `routes/nas_clients.py` | `features/nas_clients/` | 9 — RADIUS config | Standard CRUD |
+| `[x]` | `routes/nas_clients.py` | `features/nas_clients/` | 9 — RADIUS config | First reuse of vlans CRUD template + introduces `events.py` slot (NATS publish for FreeRADIUS reload); 11 pure-unit tests including secret-masking |
 | `[x]` | `routes/vlans.py` | `features/vlans/` | 9 — RADIUS config | Canonical CRUD template; 11 pure-unit tests |
 | `[ ]` | `routes/freeradius_config.py` | `features/freeradius_config/` | 9 — RADIUS config | Has NATS publisher (config apply) |
 | `[ ]` | `routes/certificates.py` | `features/certificates/` | 10 — Certificates | Crypto-heavy; reuse `shared/orw_common` atoms |
@@ -36,9 +36,9 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 | `[ ]` | `routes/settings.py` | `features/settings/` | 15 — System settings | Standard CRUD |
 | `[x]` | `routes/health.py` | `features/health/` | 16 — Health & monitoring | Minimal-feature template (only `routes.py` + `__init__.py`) |
 
-**Migrated:** 4 / 19
+**Migrated:** 5 / 19
 **In progress:** 0
-**Remaining:** 15
+**Remaining:** 14
 
 ## Canonical templates
 
@@ -57,6 +57,13 @@ migrating a remaining route:
   template for features with no DB / no service layer. Just
   `__init__.py` + `routes.py`. Use only when the handler has zero
   business logic to compose.
+- **[`features/nas_clients/`](../services/gateway/features/nas_clients/)** —
+  CRUD + NATS publisher. Demonstrates the `events.py` slot
+  (`publish_freeradius_apply` → `orw.config.freeradius.apply`),
+  request-field-to-DB-column mapping (`shared_secret` →
+  `secret_encrypted`), and secret-masking before audit logging.
+  Use as template for the NATS-publishing routes (`devices`,
+  `coa`, `freeradius_config`, `network_devices`).
 
 The full structure each template can use is:
 

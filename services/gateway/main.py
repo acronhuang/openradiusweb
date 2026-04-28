@@ -22,7 +22,7 @@ from orw_common import nats_client
 
 from routes import (
     devices, network_devices, policies, radius_auth_log, coa,
-    nas_clients, certificates, ldap_servers,
+    certificates, ldap_servers,
     radius_realms, freeradius_config, audit,
     mab_devices, dot1x_overview, group_vlan_mappings,
 )
@@ -30,6 +30,7 @@ from routes import settings as settings_routes
 from features.auth import auth_router, profile_router
 from features.health import health_router
 from features.vlans import vlans_router
+from features.nas_clients import nas_clients_router
 
 settings = get_settings()
 log = setup_logging("gateway")
@@ -154,7 +155,7 @@ app.include_router(coa.router, prefix=prefix, tags=["Change of Authorization"])
 app.include_router(certificates.router, prefix=prefix, tags=["Certificates"])
 app.include_router(ldap_servers.router, prefix=prefix, tags=["LDAP Servers"])
 app.include_router(radius_realms.router, prefix=prefix, tags=["RADIUS Realms"])
-app.include_router(nas_clients.router, prefix=prefix, tags=["NAS Clients"])
+app.include_router(nas_clients_router, prefix=prefix, tags=["NAS Clients"])
 app.include_router(settings_routes.router, prefix=prefix, tags=["Settings"])
 app.include_router(freeradius_config.router, prefix=prefix, tags=["FreeRADIUS Config"])
 app.include_router(audit.router, prefix=prefix, tags=["Audit Log"])
