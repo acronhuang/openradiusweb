@@ -1,0 +1,50 @@
+---
+# OpenRadiusWeb pre-commit hooks.
+#
+# Install once per clone:
+#     pip install pre-commit
+#     pre-commit install
+# (or: `make install-hooks` — see Makefile)
+#
+# Hooks run on `git commit` against the staged files. To run against the
+# whole tree manually: `pre-commit run --all-files`.
+
+repos:
+  # ---------------------------------------------------------------------
+  # Built-in hygiene checks (whitespace, EOF, large files, merge markers).
+  # ---------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+
+  # ---------------------------------------------------------------------
+  # Project-specific checks. Each is a local script so we don't depend on
+  # an external rev pin for our own code.
+  # ---------------------------------------------------------------------
+  - repo: local
+    hooks:
+      # Enforce feature-oriented layout: no new files in
+      # services/gateway/routes/ (per development-manual §10.6.3).
+      - id: no-new-routes
+        name: No new files in services/gateway/routes/
+        entry: python scripts/check_no_new_routes.py
+        language: system
+        pass_filenames: false
+        # Only run when the routes directory changes — fast on unrelated commits.
+        files: '^services/gateway/(routes/|features/auth/__init__\.py|main\.py)|^scripts/check_no_new_routes\.py$'
+
+      # Ruff: lint Python source. Mirrors `make lint`.
+      - id: ruff
+        name: ruff lint
+        entry: python -m ruff check
+        language: system
+        types: [python]
+        files: '^(shared/|services/|scripts/)'

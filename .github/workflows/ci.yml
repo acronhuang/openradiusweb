@@ -1,0 +1,86 @@
+---
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same ref to save CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (ruff + mypy + feature-layout)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install lint dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy
+
+      - name: Run all linters (no new routes + ruff + mypy)
+        run: make lint
+
+  pre-commit:
+    name: pre-commit (config + hygiene checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # pre-commit needs the previous commit to know what changed.
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Run pre-commit hooks
+        uses: pre-commit/action@v3.0.1
+
+  unit-tests:
+    name: Unit tests (gateway service layer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: services/gateway/requirements.txt
+
+      - name: Install gateway dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/gateway/requirements.txt
+          pip install -r services/gateway/requirements-test.txt
+          pip install aiosqlite  # for in-memory test DB
+
+      - name: Run pure-unit tests
+        # Service-layer + safe_sql + audit tests — no DB / Redis / NATS needed.
+        # HTTP-route tests are skipped here; they need real PostgreSQL and are
+        # covered by integration tests in a separate workflow (TODO).
+        env:
+          JWT_SECRET_KEY: test-secret-key-for-unit-tests
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+          REDIS_URL: "redis://localhost:6379/15"
+          NATS_URL: "nats://localhost:4222"
+          PYTHONPATH: "services/gateway:shared"
+        working-directory: services/gateway
+        run: |
+          python -m pytest \
+            tests/unit/ \
+            features/auth/tests/test_service.py \
+            -v --tb=short
