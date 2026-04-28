@@ -7,7 +7,7 @@ import {
   PlusOutlined, ReloadOutlined, DeleteOutlined, EditOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../../api';
+import api, { extractErrorMessage } from '../../api';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -171,8 +171,8 @@ export default function Realms() {
       await api.delete(`/radius/realms/${id}`);
       message.success('Realm deleted');
       loadRealms();
-    } catch {
-      message.error('Delete failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Delete failed'));
     }
   };
 

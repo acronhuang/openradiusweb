@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import api from '../../api';
+import api, { extractErrorMessage } from '../../api';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -136,7 +136,7 @@ export default function MabDevices() {
       await api.delete(`/mab-devices/${id}`);
       message.success('MAB device removed');
       loadDevices(page);
-    } catch { message.error('Delete failed'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Delete failed')); }
   };
 
   const getVlanLabel = (vlanId: number | null) => {

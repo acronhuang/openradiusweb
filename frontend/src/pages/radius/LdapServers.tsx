@@ -8,7 +8,7 @@ import {
   ApiOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../../api';
+import api, { extractErrorMessage } from '../../api';
 
 const { Title } = Typography;
 
@@ -125,8 +125,8 @@ export default function LdapServers() {
       await api.delete(`/ldap-servers/${id}`);
       message.success('LDAP server deleted');
       loadServers();
-    } catch {
-      message.error('Delete failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Delete failed'));
     }
   };
 

@@ -5,6 +5,20 @@ const api = axios.create({
   timeout: 30000,
 });
 
+/**
+ * Pull the backend's `detail` message out of an axios error if present,
+ * otherwise return the supplied fallback. Use to avoid swallowing
+ * actionable server-side messages like
+ *   "Cannot delete: LDAP server is referenced by 3 RADIUS realm(s)..."
+ *   "Realm 'corp' already exists"
+ *   "Account temporarily locked due to repeated failed login attempts."
+ */
+export function extractErrorMessage(err: unknown, fallback: string): string {
+  const detail = (err as { response?: { data?: { detail?: unknown } } })
+    ?.response?.data?.detail;
+  return typeof detail === 'string' && detail.length > 0 ? detail : fallback;
+}
+
 // Add JWT token to requests
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('orw_token');

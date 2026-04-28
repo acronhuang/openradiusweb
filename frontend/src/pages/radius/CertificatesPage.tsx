@@ -10,7 +10,7 @@ import {
   CheckCircleOutlined, MinusCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../../api';
+import api, { extractErrorMessage } from '../../api';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -205,8 +205,8 @@ export default function CertificatesPage() {
       await api.delete(`/certificates/${id}`);
       message.success('Certificate deleted');
       loadCertificates();
-    } catch {
-      message.error('Delete failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Delete failed'));
     }
   };
 
