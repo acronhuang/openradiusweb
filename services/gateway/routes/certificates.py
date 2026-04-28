@@ -1,9 +1,7 @@
 """Certificate management routes - CA/server cert generation, import, download."""
 
-import hashlib
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -259,8 +257,8 @@ async def generate_ca_cert(
     # Write files
     ca_dir = os.path.join(CERT_BASE_DIR, "ca")
     safe_name = req.name.replace(" ", "_").lower()
-    cert_file = _write_cert_file(ca_dir, f"{safe_name}.pem", cert_pem)
-    key_file = _write_cert_file(ca_dir, f"{safe_name}.key", key_pem)
+    _write_cert_file(ca_dir, f"{safe_name}.pem", cert_pem)
+    _write_cert_file(ca_dir, f"{safe_name}.key", key_pem)
 
     # Store in DB
     result = await db.execute(
@@ -413,8 +411,8 @@ async def generate_server_cert(
     # Write files
     server_dir = os.path.join(CERT_BASE_DIR, "server")
     safe_name = req.name.replace(" ", "_").lower()
-    cert_file = _write_cert_file(server_dir, f"{safe_name}.pem", cert_pem)
-    key_file = _write_cert_file(server_dir, f"{safe_name}.key", key_pem)
+    _write_cert_file(server_dir, f"{safe_name}.pem", cert_pem)
+    _write_cert_file(server_dir, f"{safe_name}.key", key_pem)
 
     # Build SAN list for DB (subject_alt_names is TEXT[] array)
     san_list = list(req.san_dns) + list(req.san_ips)

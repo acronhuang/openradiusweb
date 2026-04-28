@@ -1,8 +1,6 @@
 """Device fingerprinting - OUI lookup, DHCP fingerprinting, and classification."""
 
-import json
 import os
-from pathlib import Path
 from typing import Optional
 
 from orw_common.logging import get_logger
@@ -149,7 +147,6 @@ class DeviceFingerprinter:
         Fingerprint device using DHCP option fingerprint.
         Based on option 55 (Parameter Request List) patterns.
         """
-        param_list = dhcp_options.get("param_req_list", [])
         vendor_class = dhcp_options.get("vendor_class", "")
 
         result = {"os_family": None, "device_type": None}

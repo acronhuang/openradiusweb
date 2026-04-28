@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from orw_common.database import get_db
 from orw_common.models.network_device import (
-    NetworkDeviceCreate, NetworkDeviceUpdate, NetworkDeviceResponse,
+    NetworkDeviceCreate, NetworkDeviceResponse,
     SwitchPortResponse,
 )
 from orw_common import nats_client

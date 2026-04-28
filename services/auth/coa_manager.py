@@ -45,14 +45,12 @@ How switches must be configured:
 
 import asyncio
 import hashlib
-import hmac
 import os
 import struct
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import IntEnum
-from typing import Any, Optional
+from typing import Optional
 
 from orw_common.logging import get_logger
 from orw_common.database import get_db_context

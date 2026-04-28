@@ -5,8 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from scapy.all import (
-    AsyncSniffer, ARP, DHCP, Ether, IP, UDP,
-    conf as scapy_conf,
+    AsyncSniffer, ARP, DHCP, Ether, IP, conf as scapy_conf,
 )
 
 from orw_common.logging import get_logger

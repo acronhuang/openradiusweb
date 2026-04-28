@@ -1,6 +1,5 @@
 """CoA (Change of Authorization) API routes."""
 
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
@@ -8,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from orw_common.database import get_db
 from orw_common.models.coa import (
-    CoARequest, CoAByMacRequest, CoAByUsernameRequest,
+    CoAByMacRequest, CoAByUsernameRequest,
     CoABySessionRequest, CoABulkRequest,
 )
 from orw_common import nats_client

@@ -2,8 +2,6 @@
 
 import asyncio
 import ipaddress
-import subprocess
-import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -151,14 +149,12 @@ class ActiveScanner:
 
         try:
             from pysnmp.hlapi.v3arch.asyncio import (
-                get_cmd, bulk_cmd, SnmpEngine, CommunityData,
+                bulk_cmd, SnmpEngine, CommunityData,
                 UdpTransportTarget, ContextData, ObjectType, ObjectIdentity,
             )
 
             # dot1dTpFdbAddress - MAC address table
             mac_table_oid = "1.3.6.1.2.1.17.4.3.1.1"
-            # dot1dTpFdbPort - Port index
-            port_table_oid = "1.3.6.1.2.1.17.4.3.1.2"
 
             engine = SnmpEngine()
             discovered = 0

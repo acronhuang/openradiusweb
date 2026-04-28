@@ -6,7 +6,6 @@ from typing import Any
 
 from sqlalchemy import text
 
-from orw_common.config import get_settings
 from orw_common.logging import setup_logging
 from orw_common import nats_client
 from orw_common.database import get_db_context

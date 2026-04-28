@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from orw_common.database import get_db
 from orw_common.models.mab_device import MabDeviceCreate, MabDeviceUpdate, MabDeviceBulkItem
-from middleware.auth import get_current_user, require_operator, require_admin
+from middleware.auth import get_current_user, require_admin
 from utils.audit import log_audit
 from utils.safe_sql import build_safe_set_clause, MAB_DEVICE_UPDATE_COLUMNS
 

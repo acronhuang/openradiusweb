@@ -12,7 +12,6 @@ Can be run standalone:
 
 import argparse
 import hashlib
-import json
 import os
 import sys
 from datetime import datetime, timezone
@@ -354,19 +353,19 @@ class FreeRADIUSConfigManager:
             # Home server definition
             lines.extend([
                 f"home_server hs_{safe_name} {{",
-                f"    type = auth+acct",
+                "    type = auth+acct",
                 f"    ipaddr = {realm['proxy_host']}",
                 f"    port = {realm.get('proxy_port', 1812)}",
                 f"    secret = {realm.get('proxy_secret_encrypted', 'changeme')}",
-                f"    response_window = 20",
+                "    response_window = 20",
                 f"    zombie_period = {realm.get('proxy_dead_time_seconds', 120)}",
                 f"    revive_interval = {realm.get('proxy_dead_time_seconds', 120)}",
-                f"}}",
+                "}",
                 "",
                 f"home_server_pool pool_{safe_name} {{",
-                f"    type = fail-over",
+                "    type = fail-over",
                 f"    home_server = hs_{safe_name}",
-                f"}}",
+                "}",
                 "",
             ])
 
@@ -503,7 +502,6 @@ class FreeRADIUSConfigManager:
         with the configured LDAP modules, EAP, and the rlm_python hook.
         """
         ldap_servers = self._load_ldap_servers()
-        realms = self._load_realms()
         now = datetime.now(timezone.utc).isoformat()
 
         # Build list of LDAP module names
@@ -756,8 +754,6 @@ class FreeRADIUSConfigManager:
         applies authorization policies.
         """
         now = datetime.now(timezone.utc).isoformat()
-
-        db_url = os.environ.get("ORW_DB_URL", "")
 
         lines = [
             "# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY",

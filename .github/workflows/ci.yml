@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint (ruff + mypy + feature-layout)
+    name: Lint (ruff + feature-layout)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,10 +27,13 @@ jobs:
       - name: Install lint dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff mypy
+          pip install ruff
 
-      - name: Run all linters (no new routes + ruff + mypy)
+      - name: Run blocking linters (lint-features + ruff)
         run: make lint
+        # Mypy is intentionally out of `make lint` (the codebase is largely
+        # untyped). Run `make typecheck` locally for advisory output; once
+        # type coverage improves, add a typecheck job here.
 
   pre-commit:
     name: pre-commit (config + hygiene checks)
