@@ -24,7 +24,7 @@ from routes import (
     devices, network_devices, policies, radius_auth_log, coa,
     certificates, ldap_servers,
     radius_realms, freeradius_config, audit,
-    dot1x_overview, group_vlan_mappings,
+    dot1x_overview,
 )
 from routes import settings as settings_routes
 from features.auth import auth_router, profile_router
@@ -32,6 +32,7 @@ from features.health import health_router
 from features.vlans import vlans_router
 from features.nas_clients import nas_clients_router
 from features.mab_devices import mab_devices_router
+from features.group_vlan_mappings import group_vlan_mappings_router
 
 settings = get_settings()
 log = setup_logging("gateway")
@@ -163,7 +164,7 @@ app.include_router(audit.router, prefix=prefix, tags=["Audit Log"])
 app.include_router(vlans_router, prefix=prefix, tags=["VLANs"])
 app.include_router(mab_devices_router, prefix=prefix, tags=["MAB Devices"])
 app.include_router(dot1x_overview.router, prefix=prefix, tags=["802.1X Overview"])
-app.include_router(group_vlan_mappings.router, prefix=prefix, tags=["Group VLAN Mappings"])
+app.include_router(group_vlan_mappings_router, prefix=prefix, tags=["Group VLAN Mappings"])
 
 # Prometheus metrics endpoint (/metrics)
 Instrumentator().instrument(app).expose(app, include_in_schema=False)
