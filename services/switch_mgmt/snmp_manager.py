@@ -1,6 +1,5 @@
 """SNMP-based switch management - VLAN control, MAC table polling, port status."""
 
-import asyncio
 from typing import Any
 
 from orw_common.logging import get_logger

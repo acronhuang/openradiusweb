@@ -1,6 +1,5 @@
 """RADIUS realm management routes - local, proxy, and reject realms."""
 
-import json
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from orw_common.database import get_db
 from orw_common.models.radius_realm import RealmCreate, RealmUpdate
 from orw_common import nats_client
-from middleware.auth import get_current_user, require_operator, require_admin
+from middleware.auth import require_operator, require_admin
 from utils.audit import log_audit
 from utils.safe_sql import build_safe_set_clause, REALM_UPDATE_COLUMNS
 

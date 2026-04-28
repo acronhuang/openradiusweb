@@ -23,8 +23,8 @@ Key AD Event IDs for 802.1X troubleshooting:
 """
 
 import asyncio
-from datetime import datetime, timezone, timedelta
-from typing import Any, Optional
+from datetime import datetime, timezone
+from typing import Optional
 
 import httpx
 from sqlalchemy import text
@@ -148,10 +148,6 @@ class ADEventCollector:
         """Poll Wazuh for recent AD authentication events."""
         if not self._wazuh_token:
             await self._authenticate_wazuh()
-
-        since = self._last_poll or (
-            datetime.now(timezone.utc) - timedelta(seconds=self.poll_interval * 2)
-        )
 
         # Query Wazuh alerts for AD auth events
         # Event IDs: 4625 (failed logon), 4771 (kerberos), 4776 (NTLM), 4740 (lockout)

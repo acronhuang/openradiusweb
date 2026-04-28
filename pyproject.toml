@@ -1,0 +1,28 @@
+# Ruff configuration for OpenRadiusWeb.
+#
+# We deliberately stick to ruff's default rule set (Pyflakes E + F).
+# Adding more rule families (e.g. PL, B, UP) is fine but should be a
+# conscious decision in its own PR — not the default churn surface.
+#
+# Mypy is *not* configured here. Type-checking the microservices monorepo
+# requires a non-trivial setup (each service ships its own main.py, so the
+# default module resolver collides). `make typecheck` is provided as an
+# opt-in target; getting CI mypy-green is its own initiative.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = [
+    # FreeRADIUS Python shim — runs inside the FreeRADIUS Python module loader
+    # with its own conventions and can't be linted as ordinary Python.
+    "services/auth/freeradius/mods-config/python/rlm_orw.py",
+]
+
+[tool.ruff.lint]
+# Defaults: pyflakes (F) + pycodestyle errors (E)
+# Per-file ignores below cover known intentional patterns.
+
+[tool.ruff.lint.per-file-ignores]
+# main.py imports RequestIDMiddleware after `app` is constructed — deliberate
+# ordering (the middleware needs the app to exist).
+"services/gateway/main.py" = ["E402"]

@@ -4,7 +4,6 @@ import httpx
 from typing import Any, Optional
 
 from orw_common.logging import get_logger
-from orw_common.config import get_settings
 
 log = get_logger("wazuh_integration")
 

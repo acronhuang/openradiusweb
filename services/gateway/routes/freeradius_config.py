@@ -1,15 +1,14 @@
 """FreeRADIUS configuration management routes."""
 
 from datetime import datetime, timezone
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from orw_common.database import get_db
 from orw_common import nats_client
-from middleware.auth import get_current_user, require_admin
+from middleware.auth import require_admin
 from utils.audit import log_audit
 
 router = APIRouter(prefix="/freeradius")
@@ -111,7 +110,6 @@ async def apply_config(
     Publishes a NATS message that the config watcher service will pick up
     to regenerate configs from the database and send HUP to FreeRADIUS.
     """
-    from starlette.requests import Request
 
     tenant_id = current_user.get("tenant_id")
 

@@ -1,6 +1,5 @@
 """LDAP server management routes - CRUD and connection testing."""
 
-import json
 import time
 from uuid import UUID
 
@@ -11,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from orw_common.database import get_db
 from orw_common.models.ldap_server import LDAPServerCreate, LDAPServerUpdate
 from orw_common import nats_client
-from middleware.auth import get_current_user, require_operator, require_admin
+from middleware.auth import require_operator, require_admin
 from utils.audit import log_audit
 from utils.safe_sql import build_safe_set_clause, LDAP_SERVER_UPDATE_COLUMNS
 

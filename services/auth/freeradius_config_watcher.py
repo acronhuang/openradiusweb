@@ -16,12 +16,9 @@ import json
 import os
 import signal
 import subprocess
-import sys
 import traceback
-from datetime import datetime, timezone
 
 import nats
-from nats.errors import TimeoutError as NATSTimeoutError
 
 from freeradius_config_manager import FreeRADIUSConfigManager
 
@@ -65,7 +62,7 @@ def reload_freeradius() -> bool:
         True if the reload command succeeded, False otherwise.
     """
     try:
-        result = subprocess.run(
+        subprocess.run(
             ["docker", "exec", FREERADIUS_CONTAINER, "kill", "-HUP", "1"],
             check=True,
             capture_output=True,

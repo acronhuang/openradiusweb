@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from orw_common.database import get_db
 from orw_common.models.nas_client import NASClientCreate, NASClientUpdate
 from orw_common import nats_client
-from middleware.auth import get_current_user, require_operator, require_admin
+from middleware.auth import require_operator, require_admin
 from utils.audit import log_audit
 from utils.safe_sql import build_safe_set_clause, NAS_CLIENT_UPDATE_COLUMNS
 

@@ -139,7 +139,7 @@ class SSHManager:
         """Get vendor-specific port bounce commands."""
         if vendor in ("cisco", "cisco_xe", "cisco_nxos"):
             return [
-                f"configure terminal",
+                "configure terminal",
                 f"interface {port_name}",
                 "shutdown",
                 "no shutdown",
@@ -147,7 +147,7 @@ class SSHManager:
             ]
         elif vendor in ("aruba", "aruba_cx"):
             return [
-                f"configure terminal",
+                "configure terminal",
                 f"interface {port_name}",
                 "shutdown",
                 "no shutdown",
@@ -155,7 +155,7 @@ class SSHManager:
             ]
         elif vendor == "juniper":
             return [
-                f"configure",
+                "configure",
                 f"set interfaces {port_name} disable",
                 "commit",
                 f"delete interfaces {port_name} disable",
@@ -163,7 +163,7 @@ class SSHManager:
             ]
         else:
             return [
-                f"configure terminal",
+                "configure terminal",
                 f"interface {port_name}",
                 "shutdown",
                 "no shutdown",

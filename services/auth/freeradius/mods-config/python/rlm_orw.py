@@ -22,7 +22,6 @@ import json
 import os
 import time
 import traceback
-from datetime import datetime, timezone
 
 import radiusd  # FreeRADIUS built-in module
 

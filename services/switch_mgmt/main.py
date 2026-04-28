@@ -3,7 +3,6 @@
 import asyncio
 import signal
 
-from orw_common.config import get_settings
 from orw_common.logging import setup_logging
 from orw_common import nats_client
 

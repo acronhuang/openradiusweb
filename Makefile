@@ -1,4 +1,4 @@
-.PHONY: help setup dev up down logs test lint lint-features install-hooks clean db-init db-reset seed
+.PHONY: help setup dev up down logs test lint lint-features typecheck install-hooks clean db-init db-reset seed
 
 COMPOSE = docker compose
 PYTHON = python3
@@ -62,12 +62,14 @@ test-all: ## Run all tests
 # ============================================================
 # Quality
 # ============================================================
-lint: lint-features ## Run linters
-	$(PYTHON) -m ruff check shared/ services/
-	$(PYTHON) -m mypy shared/ services/ --ignore-missing-imports
+lint: lint-features ## Run blocking linters (ruff + feature-layout). Mypy is opt-in via `make typecheck`.
+	$(PYTHON) -m ruff check shared/ services/ scripts/
 
 lint-features: ## Enforce feature-oriented layout (no new files in gateway/routes/)
 	$(PYTHON) scripts/check_no_new_routes.py
+
+typecheck: ## Run mypy (advisory; not part of `make lint` until repo is type-annotated)
+	$(PYTHON) -m mypy shared/ services/ --ignore-missing-imports --explicit-package-bases
 
 install-hooks: ## Install git pre-commit hooks (runs lint-features on every commit)
 	$(PYTHON) -m pip install --quiet pre-commit

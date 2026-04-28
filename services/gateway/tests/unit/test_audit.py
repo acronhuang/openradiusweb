@@ -3,7 +3,7 @@
 import sys
 import os
 import json
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
