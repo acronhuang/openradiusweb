@@ -2,7 +2,7 @@
 
 import sys
 import os
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -34,17 +34,23 @@ def mock_db_session():
 
 @pytest.fixture
 async def test_client(mock_nats, mock_redis, mock_db_session, monkeypatch):
+    # Override get_db via FastAPI's dependency mechanism (monkeypatching the
+    # imported symbol won't catch the already-bound reference in routes/*.py).
+    from main import app
+    from orw_common.database import get_db
+
     monkeypatch.setattr("utils.redis_client.get_redis_client", AsyncMock(return_value=mock_redis))
 
-    async def mock_get_db():
+    async def _mock_get_db():
         yield mock_db_session
 
-    monkeypatch.setattr("orw_common.database.get_db", mock_get_db)
-
-    from main import app
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        yield client
+    app.dependency_overrides[get_db] = _mock_get_db
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 
 
 class TestDeviceEndpoints:
@@ -59,11 +65,13 @@ class TestDeviceEndpoints:
     @pytest.mark.asyncio
     async def test_list_devices_authenticated(self, test_client, viewer_headers, mock_db_session):
         """Authenticated request attempts DB query."""
-        # Mock DB to return count and empty results
-        mock_count = AsyncMock()
+        # Mock DB to return count and empty results.
+        # Result objects are *sync* — only db.execute itself is awaitable, so
+        # MagicMock for the result, AsyncMock for execute.
+        mock_count = MagicMock()
         mock_count.scalar.return_value = 0
 
-        mock_rows = AsyncMock()
+        mock_rows = MagicMock()
         mock_rows.mappings.return_value.all.return_value = []
 
         mock_db_session.execute = AsyncMock(side_effect=[mock_count, mock_rows])

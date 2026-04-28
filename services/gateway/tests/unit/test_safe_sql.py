@@ -128,7 +128,9 @@ class TestColumnAllowlists:
         assert "name" not in POLICY_TYPE_CASTS
 
     def test_nas_client_columns(self):
-        assert "shared_secret_encrypted" in NAS_CLIENT_UPDATE_COLUMNS
+        # The DB column is `secret_encrypted` (see migrations/002_settings_radius_features.sql).
+        # The request field `shared_secret` is mapped to it via column_map at the route layer.
+        assert "secret_encrypted" in NAS_CLIENT_UPDATE_COLUMNS
         assert "id" not in NAS_CLIENT_UPDATE_COLUMNS
 
     def test_realm_columns(self):
