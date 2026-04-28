@@ -30,7 +30,6 @@ LEGACY_ROUTES: frozenset[str] = frozenset({
     "network_devices.py",
     "policies.py",
     "radius_auth_log.py",
-    "radius_realms.py",
 })
 
 ROUTES_DIR = Path("services/gateway/routes")
