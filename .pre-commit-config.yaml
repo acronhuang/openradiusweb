@@ -26,8 +26,18 @@ repos:
       - id: check-json
 
   # ---------------------------------------------------------------------
-  # Project-specific checks. Each is a local script so we don't depend on
-  # an external rev pin for our own code.
+  # Ruff — the official ruff-pre-commit hook bundles its own ruff binary,
+  # so it works in CI without a separate `pip install ruff` step.
+  # Pinned ref must match the ruff version we expect; bump together.
+  # ---------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        files: '^(shared/|services/|scripts/)'
+
+  # ---------------------------------------------------------------------
+  # Project-specific local hook (no external dep needed).
   # ---------------------------------------------------------------------
   - repo: local
     hooks:
@@ -40,11 +50,3 @@ repos:
         pass_filenames: false
         # Only run when the routes directory changes — fast on unrelated commits.
         files: '^services/gateway/(routes/|features/auth/__init__\.py|main\.py)|^scripts/check_no_new_routes\.py$'
-
-      # Ruff: lint Python source. Mirrors `make lint`.
-      - id: ruff
-        name: ruff lint
-        entry: python -m ruff check
-        language: system
-        types: [python]
-        files: '^(shared/|services/|scripts/)'
