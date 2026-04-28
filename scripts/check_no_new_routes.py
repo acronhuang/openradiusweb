@@ -23,7 +23,6 @@ from pathlib import Path
 # See docs/migration-features.md for the human-readable tracker.
 LEGACY_ROUTES: frozenset[str] = frozenset({
     "certificates.py",
-    "coa.py",
     "devices.py",
     "dot1x_overview.py",
     "freeradius_config.py",
