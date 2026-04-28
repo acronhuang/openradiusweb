@@ -29,7 +29,6 @@ LEGACY_ROUTES: frozenset[str] = frozenset({
     "dot1x_overview.py",
     "freeradius_config.py",
     "group_vlan_mappings.py",
-    "health.py",
     "ldap_servers.py",
     "mab_devices.py",
     "nas_clients.py",
@@ -38,7 +37,6 @@ LEGACY_ROUTES: frozenset[str] = frozenset({
     "radius_auth_log.py",
     "radius_realms.py",
     "settings.py",
-    "vlans.py",
 })
 
 ROUTES_DIR = Path("services/gateway/routes")
