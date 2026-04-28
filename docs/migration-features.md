@@ -2,7 +2,7 @@
 
 Tracks the migration of `services/gateway/routes/<resource>.py` files into the standard feature-oriented layout `services/gateway/features/<name>/` per [development-manual.md §10.6.3](development-manual.md#1063-migration-path-for-the-existing-flat-routes).
 
-**Last updated:** 2026-04-29 (9 routes migrated: `auth/`, `profile/`, `health/`, `vlans/`, `nas_clients/`, `mab_devices/`, `group_vlan_mappings/`, `audit/`, `settings/`)
+**Last updated:** 2026-04-29 (10 routes migrated: `auth/`, `profile/`, `health/`, `vlans/`, `nas_clients/`, `mab_devices/`, `group_vlan_mappings/`, `audit/`, `settings/`, `ldap_servers/`)
 
 ## Status Legend
 
@@ -24,7 +24,7 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 | `[x]` | `routes/group_vlan_mappings.py` | `features/group_vlan_mappings/` | 6 — Dynamic VLAN | CRUD + uniqueness check + FreeRADIUS lookup-by-groups; 14 pure-unit tests |
 | `[x]` | `routes/mab_devices.py` | `features/mab_devices/` | 7 — MAB | Second reuse of vlans CRUD template; adds MAC normalization helper, unauthenticated `/check` for FreeRADIUS, and a bulk-import correctness fix; 14 pure-unit tests |
 | `[ ]` | `routes/coa.py` | `features/coa/` | 8 — CoA | Has NATS publisher → needs `events.py` |
-| `[ ]` | `routes/ldap_servers.py` | `features/ldap_servers/` | 9 — RADIUS config | Standard CRUD |
+| `[x]` | `routes/ldap_servers.py` | `features/ldap_servers/` | 9 — RADIUS config | CRUD + NATS publisher (config.freeradius.apply on every mutation) + reference check on delete + live LDAP3 connection test (kept in routes); 14 pure-unit tests |
 | `[ ]` | `routes/radius_realms.py` | `features/radius_realms/` | 9 — RADIUS config | Standard CRUD |
 | `[x]` | `routes/nas_clients.py` | `features/nas_clients/` | 9 — RADIUS config | First reuse of vlans CRUD template + introduces `events.py` slot (NATS publish for FreeRADIUS reload); 11 pure-unit tests including secret-masking |
 | `[x]` | `routes/vlans.py` | `features/vlans/` | 9 — RADIUS config | Canonical CRUD template; 11 pure-unit tests |
@@ -36,9 +36,9 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 | `[x]` | `routes/settings.py` | `features/settings/` | 15 — System settings | CRUD + NATS publisher (service-restart) + health probes; secret-masking on read AND audit; 13 pure-unit tests |
 | `[x]` | `routes/health.py` | `features/health/` | 16 — Health & monitoring | Minimal-feature template (only `routes.py` + `__init__.py`) |
 
-**Migrated:** 9 / 19
+**Migrated:** 10 / 19
 **In progress:** 0
-**Remaining:** 10
+**Remaining:** 9
 
 ## Canonical templates
 
