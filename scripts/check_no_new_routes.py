@@ -23,7 +23,6 @@ from pathlib import Path
 # See docs/migration-features.md for the human-readable tracker.
 LEGACY_ROUTES: frozenset[str] = frozenset({
     "audit.py",
-    "auth.py",
     "certificates.py",
     "coa.py",
     "devices.py",
@@ -36,7 +35,6 @@ LEGACY_ROUTES: frozenset[str] = frozenset({
     "nas_clients.py",
     "network_devices.py",
     "policies.py",
-    "profile.py",
     "radius_auth_log.py",
     "radius_realms.py",
     "settings.py",

@@ -1,4 +1,4 @@
-.PHONY: help setup dev up down logs test lint lint-features clean db-init db-reset seed
+.PHONY: help setup dev up down logs test lint lint-features install-hooks clean db-init db-reset seed
 
 COMPOSE = docker compose
 PYTHON = python3
@@ -68,6 +68,11 @@ lint: lint-features ## Run linters
 
 lint-features: ## Enforce feature-oriented layout (no new files in gateway/routes/)
 	$(PYTHON) scripts/check_no_new_routes.py
+
+install-hooks: ## Install git pre-commit hooks (runs lint-features on every commit)
+	$(PYTHON) -m pip install --quiet pre-commit
+	$(PYTHON) -m pre_commit install
+	@echo "Pre-commit hooks installed. Run 'pre-commit run --all-files' to test."
 
 format: ## Format code
 	$(PYTHON) -m ruff format shared/ services/

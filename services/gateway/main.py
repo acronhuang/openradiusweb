@@ -21,12 +21,13 @@ from orw_common.logging import setup_logging
 from orw_common import nats_client
 
 from routes import (
-    devices, network_devices, policies, auth, health, radius_auth_log, coa,
-    profile, nas_clients, certificates, ldap_servers,
+    devices, network_devices, policies, health, radius_auth_log, coa,
+    nas_clients, certificates, ldap_servers,
     radius_realms, freeradius_config, audit,
     vlans, mab_devices, dot1x_overview, group_vlan_mappings,
 )
 from routes import settings as settings_routes
+from features.auth import auth_router, profile_router
 
 settings = get_settings()
 log = setup_logging("gateway")
@@ -141,8 +142,8 @@ app.add_middleware(
 # Routes
 prefix = settings.api_prefix
 app.include_router(health.router, tags=["Health"])
-app.include_router(auth.router, prefix=prefix, tags=["Authentication"])
-app.include_router(profile.router, prefix=prefix, tags=["Profile"])
+app.include_router(auth_router, prefix=prefix, tags=["Authentication"])
+app.include_router(profile_router, prefix=prefix, tags=["Profile"])
 app.include_router(devices.router, prefix=prefix, tags=["Devices"])
 app.include_router(network_devices.router, prefix=prefix, tags=["Network Devices"])
 app.include_router(policies.router, prefix=prefix, tags=["Policies"])

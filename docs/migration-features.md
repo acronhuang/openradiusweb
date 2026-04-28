@@ -2,7 +2,7 @@
 
 Tracks the migration of `services/gateway/routes/<resource>.py` files into the standard feature-oriented layout `services/gateway/features/<name>/` per [development-manual.md §10.6.3](development-manual.md#1063-migration-path-for-the-existing-flat-routes).
 
-**Last updated:** 2026-04-28
+**Last updated:** 2026-04-28 (pilot migration of `auth/` + `profile/` complete)
 
 ## Status Legend
 
@@ -16,8 +16,8 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 
 | Status | Legacy file | Target feature folder | Group | Notes |
 |--------|-------------|------------------------|-------|-------|
-| `[ ]` | `routes/auth.py` | `features/auth/` | 1 — Auth & users | Pilot candidate (smallest, most self-contained) |
-| `[ ]` | `routes/profile.py` | `features/auth/` (merge) | 1 — Auth & users | Belongs with `auth/` per §2.2 |
+| `[x]` | `routes/auth.py` | `features/auth/` | 1 — Auth & users | Pilot — canonical template; 13 pure-unit service tests pass |
+| `[x]` | `routes/profile.py` | `features/auth/` (merged) | 1 — Auth & users | Merged into `features/auth/` per §2.2 |
 | `[ ]` | `routes/devices.py` | `features/devices/` | 2 — Device inventory | Has NATS publisher → needs `events.py` |
 | `[ ]` | `routes/policies.py` | `features/policies/` | 4 — Policy engine | Has `evaluator.py` (pure Layer 2) |
 | `[ ]` | `routes/radius_auth_log.py` | `features/radius_auth_log/` | 5 — RADIUS auth | TimescaleDB hypertable reads |
@@ -36,9 +36,50 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 | `[ ]` | `routes/settings.py` | `features/settings/` | 15 — System settings | Standard CRUD |
 | `[ ]` | `routes/health.py` | `features/health/` | 16 — Health & monitoring | Tiny — could merge into `main.py` instead |
 
-**Migrated:** 0 / 19
+**Migrated:** 2 / 19
 **In progress:** 0
-**Remaining:** 19
+**Remaining:** 17
+
+## Canonical template
+
+The pilot migration of `features/auth/` is the reference implementation. New
+features and subsequent migrations should mirror its structure:
+
+```
+services/gateway/features/auth/
+├── __init__.py          # public API (auth_router, profile_router)
+├── schemas.py           # re-exports from orw_common.models.auth + ROLE_PERMISSIONS
+├── repository.py        # 14 single-responsibility DB atoms (Resolver/Query/Repository)
+├── service.py           # use-case composition; raises domain exceptions, never HTTPException
+├── routes.py            # thin Layer 3 — parse → call service → serialize
+└── tests/
+    ├── conftest.py      # feature-local fixtures (mock_redis, mock_db, test_client)
+    ├── test_routes.py   # HTTP-level tests through ASGI
+    └── test_service.py  # pure-unit tests against service layer (no FastAPI, no DB)
+```
+
+Key conventions established by the pilot:
+
+- **`schemas.py`** is the data-shape surface. Re-exports from
+  `orw_common.models.*` are fine when other services share the model;
+  inline only when the model is feature-private.
+- **`repository.py`** functions are atoms — one DB statement, one
+  responsibility, no business logic, no exceptions beyond what
+  asyncpg/SQLAlchemy raise. Names are verbs (`lookup_*`, `insert_*`,
+  `update_*`, `delete_*`, `count_*`, `list_*`).
+- **`service.py`** orchestrates atoms and raises domain exceptions
+  (`NotFoundError`, `ConflictError`, `ValidationError`,
+  `AuthenticationError`, `RateLimitError`). It does **not** import
+  FastAPI or `HTTPException`.
+- **`routes.py`** handlers are 5–15 lines: `Depends(...)` → call
+  `service.X(...)` → wrap in response model. Domain exceptions are
+  translated to HTTP status codes by the global handler in
+  `gateway/main.py`.
+- **`__init__.py`** exposes only what `gateway/main.py` (or other
+  features) need — typically just routers. Internal symbols stay
+  internal.
+- **Tests:** `test_service.py` (no HTTP/DB) is the fast feedback loop;
+  `test_routes.py` verifies the wire-level shape.
 
 ## Recommended order
 
