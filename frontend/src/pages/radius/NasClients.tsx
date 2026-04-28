@@ -8,7 +8,7 @@ import {
   SyncOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../../api';
+import api, { extractErrorMessage } from '../../api';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -111,8 +111,8 @@ export default function NasClients() {
       await api.delete(`/nas-clients/${id}`);
       message.success('NAS client deleted');
       loadClients();
-    } catch {
-      message.error('Delete failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Delete failed'));
     }
   };
 

@@ -9,7 +9,7 @@ import {
   ArrowUpOutlined, ArrowDownOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../../api';
+import api, { extractErrorMessage } from '../../api';
 
 const { Title, Text } = Typography;
 
@@ -123,7 +123,7 @@ export default function GroupVlanMappings() {
       await api.delete(`/group-vlan-mappings/${id}`);
       message.success('Mapping deleted');
       loadMappings();
-    } catch { message.error('Delete failed'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Delete failed')); }
   };
 
   const getVlanLabel = (vlanId: number) => {

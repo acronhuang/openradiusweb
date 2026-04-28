@@ -8,7 +8,7 @@ import {
   DeleteOutlined, EditOutlined, MinusCircleOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../api';
+import api, { extractErrorMessage } from '../api';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -347,8 +347,8 @@ export default function Policies() {
       await api.delete(`/policies/${id}`);
       message.success('Policy deleted');
       loadPolicies();
-    } catch {
-      message.error('Delete failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Delete failed'));
     }
   };
 

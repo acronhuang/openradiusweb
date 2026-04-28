@@ -9,7 +9,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../../api';
+import api, { extractErrorMessage } from '../../api';
 
 const { Title } = Typography;
 
@@ -140,8 +140,8 @@ export default function UserManagement() {
       await api.delete(`/auth/users/${id}`);
       message.success('User deleted');
       loadUsers();
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Delete failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Delete failed'));
     }
   };
 
