@@ -1,4 +1,4 @@
-.PHONY: help setup dev up down logs test lint clean db-init db-reset seed
+.PHONY: help setup dev up down logs test lint lint-features clean db-init db-reset seed
 
 COMPOSE = docker compose
 PYTHON = python3
@@ -62,9 +62,12 @@ test-all: ## Run all tests
 # ============================================================
 # Quality
 # ============================================================
-lint: ## Run linters
+lint: lint-features ## Run linters
 	$(PYTHON) -m ruff check shared/ services/
 	$(PYTHON) -m mypy shared/ services/ --ignore-missing-imports
+
+lint-features: ## Enforce feature-oriented layout (no new files in gateway/routes/)
+	$(PYTHON) scripts/check_no_new_routes.py
 
 format: ## Format code
 	$(PYTHON) -m ruff format shared/ services/

@@ -1685,7 +1685,7 @@ services/gateway/
 
 既有 `services/gateway/routes/<resource>.py` 為過渡狀態。**逐步**遷移，不做 big-bang 重寫：
 
-1. **新功能必須**使用 `features/<name>/` 配置 — 不允許新增檔案到 `routes/`。
+1. **新功能必須**使用 `features/<name>/` 配置 — 不允許新增檔案到 `routes/`（由 `make lint-features` 強制；見 [scripts/check_no_new_routes.py](../scripts/check_no_new_routes.py)）。
 2. 既有路由在以下時機觸發遷移：
    - 該功能有非微小修改（新端點、結構變更）
    - 該功能的 PR 涉及 ≥ 3 個檔案（routes + utils + tests）
@@ -1695,9 +1695,9 @@ services/gateway/
    - 把 `routes/<name>.py` 的端點搬到 `features/<name>/routes.py`
    - 拆出 `service.py`（用例組合）、`repository.py`（DB 原子）、`schemas.py`（Pydantic）
    - 在 `gateway/main.py` 改 import 路徑
-   - 刪除舊的 `routes/<name>.py`
+   - 刪除舊的 `routes/<name>.py`（並從 [scripts/check_no_new_routes.py](../scripts/check_no_new_routes.py) 的 `LEGACY_ROUTES` 移除該項目）
 4. **每個 PR 只搬一個功能**，避免 review 負擔擴散。
-5. 遷移狀態追蹤於 [docs/migration-features.md](migration-features.md)（待建立 — 列出哪些功能已搬、哪些未搬）。
+5. 遷移進度追蹤於 [docs/migration-features.md](migration-features.md)。
 
 ---
 
