@@ -2,7 +2,7 @@
 
 Tracks the migration of `services/gateway/routes/<resource>.py` files into the standard feature-oriented layout `services/gateway/features/<name>/` per [development-manual.md §10.6.3](development-manual.md#1063-migration-path-for-the-existing-flat-routes).
 
-**Last updated:** 2026-04-29 (5 routes migrated: `auth/`, `profile/`, `health/`, `vlans/`, `nas_clients/`)
+**Last updated:** 2026-04-29 (6 routes migrated: `auth/`, `profile/`, `health/`, `vlans/`, `nas_clients/`, `mab_devices/`)
 
 ## Status Legend
 
@@ -22,7 +22,7 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 | `[ ]` | `routes/policies.py` | `features/policies/` | 4 — Policy engine | Has `evaluator.py` (pure Layer 2) |
 | `[ ]` | `routes/radius_auth_log.py` | `features/radius_auth_log/` | 5 — RADIUS auth | TimescaleDB hypertable reads |
 | `[ ]` | `routes/group_vlan_mappings.py` | `features/group_vlan_mappings/` | 6 — Dynamic VLAN | Standard CRUD |
-| `[ ]` | `routes/mab_devices.py` | `features/mab_devices/` | 7 — MAB | Standard CRUD |
+| `[x]` | `routes/mab_devices.py` | `features/mab_devices/` | 7 — MAB | Second reuse of vlans CRUD template; adds MAC normalization helper, unauthenticated `/check` for FreeRADIUS, and a bulk-import correctness fix; 14 pure-unit tests |
 | `[ ]` | `routes/coa.py` | `features/coa/` | 8 — CoA | Has NATS publisher → needs `events.py` |
 | `[ ]` | `routes/ldap_servers.py` | `features/ldap_servers/` | 9 — RADIUS config | Standard CRUD |
 | `[ ]` | `routes/radius_realms.py` | `features/radius_realms/` | 9 — RADIUS config | Standard CRUD |
@@ -36,9 +36,9 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 | `[ ]` | `routes/settings.py` | `features/settings/` | 15 — System settings | Standard CRUD |
 | `[x]` | `routes/health.py` | `features/health/` | 16 — Health & monitoring | Minimal-feature template (only `routes.py` + `__init__.py`) |
 
-**Migrated:** 5 / 19
+**Migrated:** 6 / 19
 **In progress:** 0
-**Remaining:** 14
+**Remaining:** 13
 
 ## Canonical templates
 
