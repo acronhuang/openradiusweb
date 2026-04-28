@@ -27,7 +27,6 @@ LEGACY_ROUTES: frozenset[str] = frozenset({
     "devices.py",
     "dot1x_overview.py",
     "freeradius_config.py",
-    "ldap_servers.py",
     "network_devices.py",
     "policies.py",
     "radius_auth_log.py",
