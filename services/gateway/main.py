@@ -21,13 +21,15 @@ from orw_common.logging import setup_logging
 from orw_common import nats_client
 
 from routes import (
-    devices, network_devices, policies, health, radius_auth_log, coa,
+    devices, network_devices, policies, radius_auth_log, coa,
     nas_clients, certificates, ldap_servers,
     radius_realms, freeradius_config, audit,
-    vlans, mab_devices, dot1x_overview, group_vlan_mappings,
+    mab_devices, dot1x_overview, group_vlan_mappings,
 )
 from routes import settings as settings_routes
 from features.auth import auth_router, profile_router
+from features.health import health_router
+from features.vlans import vlans_router
 
 settings = get_settings()
 log = setup_logging("gateway")
@@ -141,7 +143,7 @@ app.add_middleware(
 
 # Routes
 prefix = settings.api_prefix
-app.include_router(health.router, tags=["Health"])
+app.include_router(health_router, tags=["Health"])
 app.include_router(auth_router, prefix=prefix, tags=["Authentication"])
 app.include_router(profile_router, prefix=prefix, tags=["Profile"])
 app.include_router(devices.router, prefix=prefix, tags=["Devices"])
@@ -156,7 +158,7 @@ app.include_router(nas_clients.router, prefix=prefix, tags=["NAS Clients"])
 app.include_router(settings_routes.router, prefix=prefix, tags=["Settings"])
 app.include_router(freeradius_config.router, prefix=prefix, tags=["FreeRADIUS Config"])
 app.include_router(audit.router, prefix=prefix, tags=["Audit Log"])
-app.include_router(vlans.router, prefix=prefix, tags=["VLANs"])
+app.include_router(vlans_router, prefix=prefix, tags=["VLANs"])
 app.include_router(mab_devices.router, prefix=prefix, tags=["MAB Devices"])
 app.include_router(dot1x_overview.router, prefix=prefix, tags=["802.1X Overview"])
 app.include_router(group_vlan_mappings.router, prefix=prefix, tags=["Group VLAN Mappings"])

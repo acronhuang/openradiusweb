@@ -27,14 +27,18 @@ def get_engine():
     global _engine
     if _engine is None:
         settings = get_settings()
-        _engine = create_async_engine(
-            settings.database_url,
-            pool_size=settings.db_pool_size,
-            max_overflow=settings.db_max_overflow,
-            pool_pre_ping=True,
-            pool_timeout=30,
-            echo=settings.debug,
-        )
+        kwargs: dict = {"echo": settings.debug}
+        # Connection pool tuning only applies to real client/server DBs.
+        # SQLite (used by the test suite) ships StaticPool which rejects
+        # pool_size / max_overflow / pool_timeout / pool_pre_ping.
+        if not settings.database_url.startswith("sqlite"):
+            kwargs.update(
+                pool_size=settings.db_pool_size,
+                max_overflow=settings.db_max_overflow,
+                pool_pre_ping=True,
+                pool_timeout=30,
+            )
+        _engine = create_async_engine(settings.database_url, **kwargs)
     return _engine
 
 
