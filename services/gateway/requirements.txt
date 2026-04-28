@@ -6,3 +6,10 @@ python-multipart>=0.0.6
 httpx>=0.26
 redis>=5.0
 prometheus-fastapi-instrumentator>=6.1
+# DB — gateway uses orw_common.database (SQLAlchemy async + asyncpg).
+sqlalchemy[asyncio]>=2.0
+asyncpg>=0.29
+# NATS client — orw_common.nats_client wraps it for cross-service messaging.
+nats-py>=2.6
+# Structured logging — orw_common.logging.
+structlog>=23.0
