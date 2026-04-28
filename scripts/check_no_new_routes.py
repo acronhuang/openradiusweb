@@ -31,7 +31,6 @@ LEGACY_ROUTES: frozenset[str] = frozenset({
     "group_vlan_mappings.py",
     "ldap_servers.py",
     "mab_devices.py",
-    "nas_clients.py",
     "network_devices.py",
     "policies.py",
     "radius_auth_log.py",
