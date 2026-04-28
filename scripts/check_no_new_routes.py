@@ -22,7 +22,6 @@ from pathlib import Path
 # Remove an entry when the file has been migrated and deleted.
 # See docs/migration-features.md for the human-readable tracker.
 LEGACY_ROUTES: frozenset[str] = frozenset({
-    "audit.py",
     "certificates.py",
     "coa.py",
     "devices.py",
