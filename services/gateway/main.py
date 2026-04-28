@@ -26,7 +26,6 @@ from routes import (
     radius_realms, freeradius_config,
     dot1x_overview,
 )
-from routes import settings as settings_routes
 from features.auth import auth_router, profile_router
 from features.health import health_router
 from features.vlans import vlans_router
@@ -34,6 +33,7 @@ from features.nas_clients import nas_clients_router
 from features.mab_devices import mab_devices_router
 from features.group_vlan_mappings import group_vlan_mappings_router
 from features.audit import audit_router
+from features.settings import settings_router
 
 settings = get_settings()
 log = setup_logging("gateway")
@@ -159,7 +159,7 @@ app.include_router(certificates.router, prefix=prefix, tags=["Certificates"])
 app.include_router(ldap_servers.router, prefix=prefix, tags=["LDAP Servers"])
 app.include_router(radius_realms.router, prefix=prefix, tags=["RADIUS Realms"])
 app.include_router(nas_clients_router, prefix=prefix, tags=["NAS Clients"])
-app.include_router(settings_routes.router, prefix=prefix, tags=["Settings"])
+app.include_router(settings_router, prefix=prefix, tags=["Settings"])
 app.include_router(freeradius_config.router, prefix=prefix, tags=["FreeRADIUS Config"])
 app.include_router(audit_router, prefix=prefix, tags=["Audit Log"])
 app.include_router(vlans_router, prefix=prefix, tags=["VLANs"])
