@@ -21,9 +21,7 @@ from pathlib import Path
 # Snapshot of legacy route files as of 2026-04-28 (manual v1.3).
 # Remove an entry when the file has been migrated and deleted.
 # See docs/migration-features.md for the human-readable tracker.
-LEGACY_ROUTES: frozenset[str] = frozenset({
-    "certificates.py",
-})
+LEGACY_ROUTES: frozenset[str] = frozenset()
 
 ROUTES_DIR = Path("services/gateway/routes")
 
