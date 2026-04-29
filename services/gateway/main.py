@@ -23,7 +23,6 @@ from orw_common import nats_client
 from routes import (
     policies, radius_auth_log,
     certificates,
-    dot1x_overview,
 )
 from features.auth import auth_router, profile_router
 from features.health import health_router
@@ -39,6 +38,7 @@ from features.coa import coa_router
 from features.freeradius_config import freeradius_config_router
 from features.devices import devices_router
 from features.network_devices import network_devices_router
+from features.dot1x_overview import dot1x_overview_router
 
 settings = get_settings()
 log = setup_logging("gateway")
@@ -169,7 +169,7 @@ app.include_router(freeradius_config_router, prefix=prefix, tags=["FreeRADIUS Co
 app.include_router(audit_router, prefix=prefix, tags=["Audit Log"])
 app.include_router(vlans_router, prefix=prefix, tags=["VLANs"])
 app.include_router(mab_devices_router, prefix=prefix, tags=["MAB Devices"])
-app.include_router(dot1x_overview.router, prefix=prefix, tags=["802.1X Overview"])
+app.include_router(dot1x_overview_router, prefix=prefix, tags=["802.1X Overview"])
 app.include_router(group_vlan_mappings_router, prefix=prefix, tags=["Group VLAN Mappings"])
 
 # Prometheus metrics endpoint (/metrics)
