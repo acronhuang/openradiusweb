@@ -65,32 +65,61 @@
 
 ### 2.2 Install Docker and Docker Compose
 
+> **Run each block sequentially; verify the output of each before proceeding.**
+> A copy-paste of the entire script can fail silently — the GPG-key step in particular has been seen to leave both `docker.gpg` and `docker.list` missing without an obvious error.
+
 ```bash
-sudo apt update && sudo apt upgrade -y
+# === 1. Pre-requisites ===
+sudo apt update
 sudo apt install -y ca-certificates curl gnupg lsb-release
 
-# Add Docker GPG key
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+# === 2. Confirm Docker registry is reachable (catch network/proxy issues early) ===
+curl -sI https://download.docker.com/ | head -3
+# Expect: HTTP/2 200 (or 301). If it hangs or returns nothing, fix outbound network first.
 
-# Add Docker repository
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+# === 3. Install GPG key — verify the file exists at the end ===
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /tmp/docker.gpg
+sudo gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg /tmp/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+ls -la /etc/apt/keyrings/docker.gpg
+# Expect: -rw-r--r-- ... ~2.7K bytes
 
-# Install Docker Engine + Compose Plugin
-sudo apt update
-sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+# === 4. Add Docker repository — verify the file exists at the end ===
+ARCH=$(dpkg --print-architecture)
+CODENAME=$(lsb_release -cs)
+echo "deb [arch=$ARCH signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $CODENAME stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list
 
-# Add current user to docker group (no sudo needed)
+cat /etc/apt/sources.list.d/docker.list
+# Expect a single line: deb [arch=amd64 signed-by=...] https://download.docker.com/linux/ubuntu jammy stable
+
+# === 5. Update package list — Docker repo MUST appear in output ===
+sudo apt update 2>&1 | grep -E "docker|Hit|Get" | head
+# Expect at least one line containing "https://download.docker.com/linux/ubuntu jammy InRelease"
+
+# === 6. Install Docker Engine + Compose + Buildx ===
+sudo apt install -y \
+  docker-ce \
+  docker-ce-cli \
+  containerd.io \
+  docker-buildx-plugin \
+  docker-compose-plugin
+
+# === 7. Add current user to docker group ===
 sudo usermod -aG docker $USER
 
-# Verify
+# === 8. Verify (must run in a NEW shell — see note below) ===
+newgrp docker     # picks up the docker group in the current shell
 docker --version
 docker compose version
+docker run --rm hello-world
 ```
 
-> **Note:** Log out and back in after adding the docker group.
+> **Two common gotchas:**
+>
+> 1. **`sudo apt install -y docker-ce` fails with "Package docker-ce has no installation candidate"** — step 4 didn't actually create `/etc/apt/sources.list.d/docker.list`. Re-run step 4 (the multi-line `echo` is the most fragile part — keep it on one line as written) and confirm `cat` shows the expected content.
+> 2. **`docker compose ... build` later fails with "permission denied while trying to connect to the docker API at unix:///var/run/docker.sock"** — `newgrp docker` only affects the current shell. After SSH reconnects you may lose the membership again. Two safe workarounds: (a) `exit` and SSH back in (the membership is then permanent for that login), or (b) prefix all docker commands with `sudo`.
 
 ### 2.3 Create Deployment Directory
 
@@ -106,10 +135,25 @@ sudo chown $USER:$USER /opt/openradiusweb
 ### 3.1 Option A: Git Clone (Recommended)
 
 ```bash
+sudo mkdir -p /opt && sudo chown $USER:$USER /opt
 cd /opt
-sudo git clone https://github.com/YOUR_ORG/openradiusweb.git
-sudo chown -R $USER:$USER openradiusweb
+git clone https://github.com/acronhuang/openradiusweb.git
+cd openradiusweb
+git log --oneline -3      # Confirm you have the latest main HEAD
 ```
+
+> **If the repo is private**, GitHub no longer accepts password authentication for HTTPS git operations. You must use one of:
+>
+> - **Personal Access Token (PAT)** — generate a fine-grained token at https://github.com/settings/personal-access-tokens/new with `Repository access: Only select repositories → openradiusweb` and `Permissions → Repository → Contents: Read-only`. Embed it directly in the clone URL **for the clone only**, then immediately scrub it from `git config`:
+>   ```bash
+>   git clone https://<TOKEN>@github.com/acronhuang/openradiusweb.git
+>   cd openradiusweb
+>   git remote set-url origin https://github.com/acronhuang/openradiusweb.git   # remove token from .git/config
+>   ```
+>   ⚠️ Never paste the PAT into chat, screenshots, or shared logs. If it leaks, revoke it at https://github.com/settings/personal-access-tokens immediately.
+> - **SSH key** — `ssh-keygen -t ed25519 -C "deploy@$(hostname)"`, add the `.pub` key at https://github.com/settings/keys, then clone with `git clone git@github.com:acronhuang/openradiusweb.git`.
+>
+> **If the repo is public**, no auth needed — `git clone https://github.com/acronhuang/openradiusweb.git` just works.
 
 ### 3.2 Option B: SCP/SFTP Upload
 
@@ -224,20 +268,48 @@ AUTH_LOG_RETENTION_DAYS=365
 EVENT_LOG_RETENTION_DAYS=180
 ```
 
-### 4.5 Generate Secrets
+### 4.5 Generate Secrets and Write Them Into `.env.production`
+
+> **Do not use `openssl rand -base64` directly with `sed` — base64 output can contain `+`, `/`, `|`, or `=`, and even after `tr -d` removes them the remaining string can still break a `sed` command if the delimiter clashes.** Use the alphanumeric-only generator below; it's guaranteed sed-safe regardless of the delimiter you pick.
 
 ```bash
-# Generate all three secrets at once
-echo "DB_PASSWORD=$(openssl rand -base64 24)"
-echo "REDIS_PASSWORD=$(openssl rand -base64 24)"
-echo "JWT_SECRET_KEY=$(openssl rand -hex 32)"
+cd /opt/openradiusweb
+
+# === 1. Copy the template ===
+cp .env.example .env.production
+
+# === 2. Generate three alphanumeric secrets (sed-safe) ===
+DBP=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)
+RDP=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)
+JWP=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)
+
+# Use ~ as the sed delimiter (won't appear in alphanumeric output)
+sed -i "s~^DB_PASSWORD=.*~DB_PASSWORD=$DBP~"           .env.production
+sed -i "s~^REDIS_PASSWORD=.*~REDIS_PASSWORD=$RDP~"     .env.production
+sed -i "s~^JWT_SECRET_KEY=.*~JWT_SECRET_KEY=$JWP~"     .env.production
+
+# === 3. Verify all three were actually written ===
+grep -E "^(DB_PASSWORD|REDIS_PASSWORD|JWT_SECRET_KEY)=" .env.production | sed 's|=.*|=*** (set)|'
+# Expect three "*** (set)" lines. If any line is missing or shows CHANGE_ME, re-run the corresponding sed.
 ```
+
+> **If a `sed` step prints `unterminated 's' command`** — the value contained the delimiter character. Switch the delimiter (try `~`, `#`, or `@`) or use the `tr -dc 'A-Za-z0-9'` form above which never contains punctuation.
 
 ### 4.6 Identify Network Interface
 
 ```bash
-ip addr show
-# Update SCAN_INTERFACE if not eth0 (e.g., ens33, ens160)
+ip -br a
+# Pick the interface with your management IP (typically eno1 / ens33 / ens160 / enp0s3),
+# NOT lo or docker0 or any DOWN interface.
+```
+
+Then write it into `.env.production`:
+
+```bash
+# Replace eno1 with whatever you saw above
+sed -i 's|^SCAN_INTERFACE=.*|SCAN_INTERFACE=eno1|' .env.production
+grep '^SCAN_INTERFACE' .env.production
+# Expect: SCAN_INTERFACE=eno1
 ```
 
 ### 4.7 Secure the Configuration
@@ -445,6 +517,8 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -d '{"username":"admin","password":"OpenNAC2026"}'
 ```
 
+Expect a JSON response containing `access_token`. **If you get `{"detail":"Invalid credentials"}` (HTTP 401)**, the bcrypt hash in `migrations/seed.sql` was generated against a different bcrypt version than the one inside the gateway container. Reset it from the gateway container's own bcrypt — see [§9.5](#95-reset-admin-password-when-seed-hash-is-incompatible).
+
 ### 9.4 Browser Access
 
 | Item | URL |
@@ -452,6 +526,60 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 | Web UI | `http://SERVER_IP:8888` |
 | API Swagger Docs | `http://SERVER_IP:8000/docs` |
 | API Health | `http://SERVER_IP:8000/health` |
+
+### 9.5 Reset admin password when seed hash is incompatible
+
+This is needed once per fresh deployment when the seed bcrypt hash and the gateway's bcrypt version disagree (typical on first deploys against a newer Python image). Generating the hash inside the gateway container guarantees it uses the same bcrypt build as the verifier.
+
+```bash
+# === 1. Generate a fresh bcrypt hash using the gateway container's own bcrypt ===
+NEWHASH=$(docker exec orw-gateway python -c "import bcrypt; print(bcrypt.hashpw(b'OpenNAC2026', bcrypt.gensalt()).decode())")
+echo "Length: ${#NEWHASH}"     # Expect 60
+
+# === 2. Write it into the users table ===
+docker exec orw-postgres psql -U orw -d orw -c \
+  "UPDATE users SET password_hash='$NEWHASH' WHERE username='admin';"
+# Expect: UPDATE 1
+
+# === 3. Clear any rate-limit / lockout state in Redis ===
+REDIS_PW=$(grep ^REDIS_PASSWORD /opt/openradiusweb/.env.production | cut -d= -f2)
+docker exec orw-redis redis-cli -a "$REDIS_PW" FLUSHDB
+# Expect: OK
+
+# === 4. Retry login — should now return access_token ===
+curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"OpenNAC2026"}'
+```
+
+> **Do this immediately on first deploy, before exposing the system to anyone**, because the default `OpenNAC2026` password is documented and assumed by the smoke tests below. Change it via **Profile → Change Password** in the Web UI as soon as you've logged in once.
+
+### 9.6 Smoke a migrated endpoint (verifies the 19/19 feature migration is live)
+
+```bash
+# Login and stash the token
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"OpenNAC2026"}' \
+  | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))")
+echo "Token len: ${#TOKEN}"     # Expect 200+
+
+# Hit the dot1x_overview endpoint (the most aggregate of all migrated features —
+# composes 10 atomic queries across 9 tables; exercises a wide swath of code)
+curl -sf -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/dot1x/overview \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('keys:', sorted(d.keys()))"
+```
+
+Expect exactly:
+```
+keys: ['auth_stats_24h', 'certificates', 'eap_methods', 'group_vlan_mappings', 'mab_devices', 'nas_clients', 'policies', 'realms', 'vlans']
+```
+
+If you see a different key set or an HTTP error, the gateway image is older than `e4be823` (post-migration HEAD) — rebuild and restart it:
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production build --no-cache gateway
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d gateway
+```
 
 ---
 
@@ -523,6 +651,14 @@ docker stats --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}"
 
 ---
 
-> **Version:** 2.0
-> **Last Updated:** 2026-04-23
+> **Version:** 2.1
+> **Last Updated:** 2026-04-30
 > **Applies to:** OpenRadiusWeb Docker Deployment (12-container architecture)
+>
+> **Changes in 2.1** (real-world fixes from a fresh deployment on 2026-04-30):
+> - §2.2 — split into 8 explicit verification steps; added `docker-buildx-plugin` (was missing); added `newgrp docker` / SSH-reconnect note for the most common "permission denied on docker.sock" failure.
+> - §3.1 — replaced `YOUR_ORG` placeholder; added explicit PAT-vs-SSH-vs-public guidance for HTTPS auth (GitHub no longer accepts password auth); added token-leak warning and one-liner to scrub the token from `.git/config` after clone.
+> - §4.5 — replaced fragile `openssl rand -base64` with sed-safe alphanumeric `tr -dc` generator; switched sed delimiter to `~`; added per-step verification.
+> - §4.6 — switched `ip addr show` to `ip -br a` (cleaner output) and added the `sed` line to write `SCAN_INTERFACE` directly.
+> - §9.5 (new) — bcrypt seed-hash incompatibility workaround (generate the hash inside the gateway container so it uses the same bcrypt build as the verifier).
+> - §9.6 (new) — smoke test against `/api/v1/dot1x/overview` to confirm the 19/19 feature migration is live.
