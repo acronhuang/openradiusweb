@@ -2,7 +2,7 @@
 
 Tracks the migration of `services/gateway/routes/<resource>.py` files into the standard feature-oriented layout `services/gateway/features/<name>/` per [development-manual.md §10.6.3](development-manual.md#1063-migration-path-for-the-existing-flat-routes).
 
-**Last updated:** 2026-04-29 (13 routes migrated: `auth/`, `profile/`, `health/`, `vlans/`, `nas_clients/`, `mab_devices/`, `group_vlan_mappings/`, `audit/`, `settings/`, `ldap_servers/`, `radius_realms/`, `coa/`, `freeradius_config/`)
+**Last updated:** 2026-04-29 (14 routes migrated: `auth/`, `profile/`, `health/`, `vlans/`, `nas_clients/`, `mab_devices/`, `group_vlan_mappings/`, `audit/`, `settings/`, `ldap_servers/`, `radius_realms/`, `coa/`, `freeradius_config/`, `devices/`)
 
 ## Status Legend
 
@@ -18,7 +18,7 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 |--------|-------------|------------------------|-------|-------|
 | `[x]` | `routes/auth.py` | `features/auth/` | 1 — Auth & users | Pilot — canonical template; 13 pure-unit service tests pass |
 | `[x]` | `routes/profile.py` | `features/auth/` (merged) | 1 — Auth & users | Merged into `features/auth/` per §2.2 |
-| `[ ]` | `routes/devices.py` | `features/devices/` | 2 — Device inventory | Has NATS publisher → needs `events.py` |
+| `[x]` | `routes/devices.py` | `features/devices/` | 2 — Device inventory | UPSERT-by-MAC + NATS publish (orw.device.upserted) + EAV properties endpoints with parent-exists validation; 13 pure-unit tests |
 | `[ ]` | `routes/policies.py` | `features/policies/` | 4 — Policy engine | Has `evaluator.py` (pure Layer 2) |
 | `[ ]` | `routes/radius_auth_log.py` | `features/radius_auth_log/` | 5 — RADIUS auth | TimescaleDB hypertable reads |
 | `[x]` | `routes/group_vlan_mappings.py` | `features/group_vlan_mappings/` | 6 — Dynamic VLAN | CRUD + uniqueness check + FreeRADIUS lookup-by-groups; 14 pure-unit tests |
@@ -36,9 +36,9 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 | `[x]` | `routes/settings.py` | `features/settings/` | 15 — System settings | CRUD + NATS publisher (service-restart) + health probes; secret-masking on read AND audit; 13 pure-unit tests |
 | `[x]` | `routes/health.py` | `features/health/` | 16 — Health & monitoring | Minimal-feature template (only `routes.py` + `__init__.py`) |
 
-**Migrated:** 13 / 19
+**Migrated:** 14 / 19
 **In progress:** 0
-**Remaining:** 6
+**Remaining:** 5
 
 ## Canonical templates
 
