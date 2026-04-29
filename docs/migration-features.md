@@ -2,7 +2,7 @@
 
 Tracks the migration of `services/gateway/routes/<resource>.py` files into the standard feature-oriented layout `services/gateway/features/<name>/` per [development-manual.md §10.6.3](development-manual.md#1063-migration-path-for-the-existing-flat-routes).
 
-**Last updated:** 2026-04-29 (17 routes migrated — complex batch: + `radius_auth_log/`)
+**Last updated:** 2026-04-29 (18 routes migrated — complex batch: + `policies/`)
 
 ## Status Legend
 
@@ -19,7 +19,7 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 | `[x]` | `routes/auth.py` | `features/auth/` | 1 — Auth & users | Pilot — canonical template; 13 pure-unit service tests pass |
 | `[x]` | `routes/profile.py` | `features/auth/` (merged) | 1 — Auth & users | Merged into `features/auth/` per §2.2 |
 | `[x]` | `routes/devices.py` | `features/devices/` | 2 — Device inventory | UPSERT-by-MAC + NATS publish (orw.device.upserted) + EAV properties endpoints with parent-exists validation; 13 pure-unit tests |
-| `[ ]` | `routes/policies.py` | `features/policies/` | 4 — Policy engine | Has `evaluator.py` (pure Layer 2) |
+| `[x]` | `routes/policies.py` | `features/policies/` | 4 — Policy engine | CRUD + 3 NATS subjects (created/updated/deleted) + templates + simulate-one/simulate-all; PolicyEvaluator stays in `orw_common` for cross-service reuse; 15 pure-unit tests |
 | `[x]` | `routes/radius_auth_log.py` | `features/radius_auth_log/` | 5 — RADIUS auth | TimescaleDB hypertable reads — 8 endpoints (list/detail/3 stats/catalog/live/export); 16 single-statement repo atoms with shared `_build_log_where`; CSV serialization stays at routes layer; 17 pure-unit tests |
 | `[x]` | `routes/group_vlan_mappings.py` | `features/group_vlan_mappings/` | 6 — Dynamic VLAN | CRUD + uniqueness check + FreeRADIUS lookup-by-groups; 14 pure-unit tests |
 | `[x]` | `routes/mab_devices.py` | `features/mab_devices/` | 7 — MAB | Second reuse of vlans CRUD template; adds MAC normalization helper, unauthenticated `/check` for FreeRADIUS, and a bulk-import correctness fix; 14 pure-unit tests |
@@ -36,9 +36,9 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 | `[x]` | `routes/settings.py` | `features/settings/` | 15 — System settings | CRUD + NATS publisher (service-restart) + health probes; secret-masking on read AND audit; 13 pure-unit tests |
 | `[x]` | `routes/health.py` | `features/health/` | 16 — Health & monitoring | Minimal-feature template (only `routes.py` + `__init__.py`) |
 
-**Migrated:** 17 / 19
+**Migrated:** 18 / 19
 **In progress:** 0
-**Remaining:** 2
+**Remaining:** 1
 
 ## Canonical templates
 
