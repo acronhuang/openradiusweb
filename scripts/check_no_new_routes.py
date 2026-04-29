@@ -24,7 +24,6 @@ from pathlib import Path
 LEGACY_ROUTES: frozenset[str] = frozenset({
     "certificates.py",
     "dot1x_overview.py",
-    "network_devices.py",
     "policies.py",
     "radius_auth_log.py",
 })
