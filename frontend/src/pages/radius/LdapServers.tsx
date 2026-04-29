@@ -49,7 +49,7 @@ export default function LdapServers() {
     try {
       const res = await api.get('/ldap-servers');
       setServers(res.data.items || res.data || []);
-    } catch { message.error('Failed to load LDAP servers'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load LDAP servers')); }
     setLoading(false);
   };
 
@@ -111,10 +111,8 @@ export default function LdapServers() {
       }
       setModalOpen(false);
       loadServers();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to save LDAP server'));
     } finally {
       setSaving(false);
     }
@@ -144,8 +142,8 @@ export default function LdapServers() {
         message.error(`Connection failed: ${r.error || 'Unknown error'}`);
       }
       loadServers();
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Test failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Test failed'));
     } finally {
       setTestingId(null);
     }

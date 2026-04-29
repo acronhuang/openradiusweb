@@ -10,7 +10,7 @@ import {
   ArrowRightOutlined, ClockCircleOutlined, InfoCircleOutlined,
   QuestionCircleOutlined, BugOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import api from '../api';
+import api, { extractErrorMessage } from '../api';
 
 const { Title, Text, Paragraph } = Typography;
 const { Panel } = Collapse;
@@ -117,7 +117,7 @@ export default function Dashboard() {
       }
       setStats(s);
       if (authRes.status === 'fulfilled') setRecentAuth(authRes.value.data.items || []);
-    } catch { message.error('Failed to load dashboard data'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load dashboard data')); }
     setLoading(false);
   };
 

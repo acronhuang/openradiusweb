@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Table, Tag, Input, Select, Button, Space, Typography, Card, message } from 'antd';
 import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../api';
+import api, { extractErrorMessage } from '../api';
 
 const { Title } = Typography;
 
@@ -36,7 +36,7 @@ export default function Devices() {
       });
       setDevices(res.data.items || []);
       setTotal(res.data.total || 0);
-    } catch { message.error('Failed to load devices'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load devices')); }
     setLoading(false);
   };
 

@@ -60,7 +60,7 @@ export default function GroupVlanMappings() {
     try {
       const res = await api.get('/group-vlan-mappings');
       setMappings(res.data.items || []);
-    } catch { message.error('Failed to load group VLAN mappings'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load group VLAN mappings')); }
     setLoading(false);
   };
 
@@ -111,8 +111,8 @@ export default function GroupVlanMappings() {
       }
       setModalOpen(false);
       loadMappings();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) message.error(err.response.data.detail);
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to save group-VLAN mapping'));
     } finally {
       setSaving(false);
     }

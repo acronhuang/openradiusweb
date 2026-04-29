@@ -66,7 +66,7 @@ export default function Realms() {
     try {
       const res = await api.get('/radius/realms');
       setRealms(res.data.items || res.data || []);
-    } catch { message.error('Failed to load realms'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load realms')); }
     setLoading(false);
   };
 
@@ -75,7 +75,7 @@ export default function Realms() {
       const res = await api.get('/ldap-servers');
       const items = res.data.items || res.data || [];
       setLdapServers(items.map((s: any) => ({ id: s.id, name: s.name })));
-    } catch { message.error('Failed to load realms'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load realms')); }
   };
 
   const openCreate = () => {
@@ -157,10 +157,8 @@ export default function Realms() {
       }
       setModalOpen(false);
       loadRealms();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to save realm'));
     } finally {
       setSaving(false);
     }

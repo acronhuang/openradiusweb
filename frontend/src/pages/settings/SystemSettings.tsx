@@ -7,7 +7,7 @@ import {
   ReloadOutlined, SaveOutlined, WifiOutlined,
   SettingOutlined, HeartOutlined, PoweroffOutlined,
 } from '@ant-design/icons';
-import api from '../../api';
+import api, { extractErrorMessage } from '../../api';
 
 const { Title } = Typography;
 
@@ -45,8 +45,8 @@ export default function SystemSettings() {
       } else {
         setTimeout(() => { loadServiceStatus(); }, 3000);
       }
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || `Failed to restart ${serviceName}`);
+    } catch (err) {
+      message.error(extractErrorMessage(err, `Failed to restart ${serviceName}`));
     } finally {
       setRestartingService(null);
     }
@@ -71,7 +71,7 @@ export default function SystemSettings() {
       } else {
         setRadiusSettings(data);
       }
-    } catch { message.error('Failed to load RADIUS settings'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load RADIUS settings')); }
     setRadiusLoading(false);
   };
 
@@ -93,7 +93,7 @@ export default function SystemSettings() {
         session_timeout_minutes: map.session_timeout_minutes ? Number(map.session_timeout_minutes) : undefined,
         max_login_attempts: map.max_login_attempts ? Number(map.max_login_attempts) : undefined,
       });
-    } catch { message.error('Failed to load general settings'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load general settings')); }
     setGeneralLoading(false);
   };
 
@@ -106,10 +106,8 @@ export default function SystemSettings() {
       Object.entries(values).forEach(([k, v]) => { settingsMap[k] = String(v); });
       await api.put('/settings/general', { settings: settingsMap });
       message.success('Settings saved');
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to save settings'));
     } finally {
       setGeneralSaving(false);
     }
@@ -148,7 +146,7 @@ export default function SystemSettings() {
           }));
           setServices(list);
         }
-      } catch { message.error('Failed to load settings'); }
+      } catch (err) { message.error(extractErrorMessage(err, 'Failed to load settings')); }
     }
     setServicesLoading(false);
   };
