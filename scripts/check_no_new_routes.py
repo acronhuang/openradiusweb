@@ -23,7 +23,6 @@ from pathlib import Path
 # See docs/migration-features.md for the human-readable tracker.
 LEGACY_ROUTES: frozenset[str] = frozenset({
     "certificates.py",
-    "policies.py",
 })
 
 ROUTES_DIR = Path("services/gateway/routes")
