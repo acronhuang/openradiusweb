@@ -24,7 +24,6 @@ from pathlib import Path
 LEGACY_ROUTES: frozenset[str] = frozenset({
     "certificates.py",
     "policies.py",
-    "radius_auth_log.py",
 })
 
 ROUTES_DIR = Path("services/gateway/routes")
