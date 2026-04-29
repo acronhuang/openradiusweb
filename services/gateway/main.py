@@ -23,7 +23,6 @@ from orw_common import nats_client
 from routes import (
     devices, network_devices, policies, radius_auth_log,
     certificates,
-    freeradius_config,
     dot1x_overview,
 )
 from features.auth import auth_router, profile_router
@@ -37,6 +36,7 @@ from features.settings import settings_router
 from features.ldap_servers import ldap_servers_router
 from features.radius_realms import radius_realms_router
 from features.coa import coa_router
+from features.freeradius_config import freeradius_config_router
 
 settings = get_settings()
 log = setup_logging("gateway")
@@ -163,7 +163,7 @@ app.include_router(ldap_servers_router, prefix=prefix, tags=["LDAP Servers"])
 app.include_router(radius_realms_router, prefix=prefix, tags=["RADIUS Realms"])
 app.include_router(nas_clients_router, prefix=prefix, tags=["NAS Clients"])
 app.include_router(settings_router, prefix=prefix, tags=["Settings"])
-app.include_router(freeradius_config.router, prefix=prefix, tags=["FreeRADIUS Config"])
+app.include_router(freeradius_config_router, prefix=prefix, tags=["FreeRADIUS Config"])
 app.include_router(audit_router, prefix=prefix, tags=["Audit Log"])
 app.include_router(vlans_router, prefix=prefix, tags=["VLANs"])
 app.include_router(mab_devices_router, prefix=prefix, tags=["MAB Devices"])
