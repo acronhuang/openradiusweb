@@ -8,7 +8,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import api from '../../api';
+import api, { extractErrorMessage } from '../../api';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -98,7 +98,7 @@ export default function AuditLog() {
       const res = await api.get('/audit-log', { params });
       setEntries(res.data.items || []);
       setTotal(res.data.total || 0);
-    } catch { message.error('Failed to load audit log'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load audit log')); }
     setLoading(false);
   };
 

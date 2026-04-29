@@ -81,7 +81,7 @@ export default function MabDevices() {
       setDevices(res.data.items || []);
       setTotal(res.data.total || 0);
       setPage(p);
-    } catch { message.error('Failed to load MAB devices'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load MAB devices')); }
     setLoading(false);
   };
 
@@ -124,8 +124,8 @@ export default function MabDevices() {
       }
       setModalOpen(false);
       loadDevices(page);
-    } catch (err: any) {
-      if (err?.response?.data?.detail) message.error(err.response.data.detail);
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to save MAB device'));
     } finally {
       setSaving(false);
     }

@@ -9,7 +9,7 @@ import {
   CloseCircleOutlined, WarningOutlined, ArrowRightOutlined,
   CloudServerOutlined, TeamOutlined,
 } from '@ant-design/icons';
-import api from '../api';
+import api, { extractErrorMessage } from '../api';
 
 const { Title, Text } = Typography;
 
@@ -80,7 +80,7 @@ export default function Dot1xOverview() {
     try {
       const res = await api.get('/dot1x/overview');
       setData(res.data);
-    } catch { message.error('Failed to load 802.1X overview'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load 802.1X overview')); }
     setLoading(false);
   };
 

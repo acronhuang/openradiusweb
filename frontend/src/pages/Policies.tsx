@@ -253,7 +253,7 @@ export default function Policies() {
       const res = await api.get('/policies', { params: { page_size: 100 } });
       setPolicies(res.data.items || []);
       setTotal(res.data.total || 0);
-    } catch { message.error('Failed to load policies'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load policies')); }
     setLoading(false);
   };
 
@@ -333,10 +333,8 @@ export default function Policies() {
       }
       setModalOpen(false);
       loadPolicies();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to save policy'));
     } finally {
       setSaving(false);
     }
@@ -357,8 +355,8 @@ export default function Policies() {
       await api.patch(`/policies/${policy.id}`, { enabled });
       message.success(`Policy ${enabled ? 'enabled' : 'disabled'}`);
       loadPolicies();
-    } catch {
-      message.error('Update failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Update failed'));
     }
   };
 

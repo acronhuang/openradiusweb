@@ -49,7 +49,7 @@ export default function NasClients() {
     try {
       const res = await api.get('/nas-clients');
       setClients(res.data.items || res.data || []);
-    } catch { message.error('Failed to load NAS clients'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load NAS clients')); }
     setLoading(false);
   };
 
@@ -97,10 +97,8 @@ export default function NasClients() {
       }
       setModalOpen(false);
       loadClients();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to save NAS client'));
     } finally {
       setSaving(false);
     }
@@ -121,8 +119,8 @@ export default function NasClients() {
     try {
       await api.post('/nas-clients/sync-radius');
       message.success('NAS clients synced to FreeRADIUS successfully');
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Sync failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Sync failed'));
     } finally {
       setSyncing(false);
     }

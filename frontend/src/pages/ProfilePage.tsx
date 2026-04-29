@@ -6,7 +6,7 @@ import {
 import {
   UserOutlined, SaveOutlined, LockOutlined, MailOutlined,
 } from '@ant-design/icons';
-import api from '../api';
+import api, { extractErrorMessage } from '../api';
 
 const { Title, Text } = Typography;
 
@@ -80,7 +80,7 @@ export default function ProfilePage() {
       const res = await api.get('/auth/me');
       setProfile(res.data);
       emailForm.setFieldsValue({ email: res.data.email });
-    } catch { message.error('Failed to load profile'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load profile')); }
     setLoading(false);
   };
 
@@ -94,7 +94,7 @@ export default function ProfilePage() {
         theme: data.theme || 'Light',
         notifications_enabled: data.notifications_enabled ?? true,
       });
-    } catch { message.error('Failed to load profile'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load profile')); }
   };
 
   const handleEmailSave = async () => {
@@ -104,10 +104,8 @@ export default function ProfilePage() {
       await api.put('/profile/email', { email: values.email });
       message.success('Email updated');
       loadProfile();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to update email'));
     } finally {
       setEmailSaving(false);
     }
@@ -123,10 +121,8 @@ export default function ProfilePage() {
       });
       message.success('Password changed successfully');
       passwordForm.resetFields();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to change password'));
     } finally {
       setPasswordSaving(false);
     }
@@ -138,10 +134,8 @@ export default function ProfilePage() {
       setPrefsSaving(true);
       await api.put('/profile/preferences', values);
       message.success('Preferences saved');
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to save preferences'));
     } finally {
       setPrefsSaving(false);
     }

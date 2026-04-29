@@ -8,7 +8,7 @@ import {
   WarningOutlined, SearchOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../api';
+import api, { extractErrorMessage } from '../api';
 
 const { Title, Text } = Typography;
 
@@ -60,7 +60,9 @@ export default function CoAPage() {
       const res = await api.get('/coa/active-sessions', { params: { page_size: 100 } });
       setSessions(res.data.items || []);
       setTotal(res.data.total || 0);
-    } catch { message.error('Operation failed'); }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to load active sessions'));
+    }
     setLoading(false);
   };
 
@@ -68,7 +70,9 @@ export default function CoAPage() {
     try {
       const res = await api.get('/coa/history', { params: { page_size: 50 } });
       setCoaHistory(res.data.items || []);
-    } catch { message.error('Operation failed'); }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to load CoA history'));
+    }
   };
 
   const sendCoA = async (session: Session, action: string, vlanId?: number) => {
@@ -81,8 +85,8 @@ export default function CoAPage() {
       });
       message.success(`CoA ${action} sent to ${session.calling_station_id}`);
       setTimeout(loadSessions, 3000);
-    } catch {
-      message.error('CoA request failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'CoA request failed'));
     }
   };
 

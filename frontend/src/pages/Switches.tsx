@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Table, Tag, Button, Space, Typography, Card, Badge, message } from 'antd';
 import { ReloadOutlined, ApartmentOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../api';
+import api, { extractErrorMessage } from '../api';
 
 const { Title } = Typography;
 
@@ -30,7 +30,7 @@ export default function Switches() {
       const res = await api.get('/network-devices', { params: { page_size: 100 } });
       setSwitches(res.data.items || []);
       setTotal(res.data.total || 0);
-    } catch { message.error('Failed to load switches'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load switches')); }
     setLoading(false);
   };
 

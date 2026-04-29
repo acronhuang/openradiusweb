@@ -64,7 +64,7 @@ export default function UserManagement() {
     try {
       const res = await api.get('/auth/me');
       setCurrentUsername(res.data.username || '');
-    } catch { message.error('Failed to load users'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load users')); }
   };
 
   const loadUsers = async () => {
@@ -72,7 +72,7 @@ export default function UserManagement() {
     try {
       const res = await api.get('/auth/users');
       setUsers(Array.isArray(res.data) ? res.data : res.data.items || []);
-    } catch { message.error('Failed to load users'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load users')); }
     setLoading(false);
   };
 
@@ -81,7 +81,7 @@ export default function UserManagement() {
     try {
       const res = await api.get('/auth/roles');
       setRoles(Array.isArray(res.data) ? res.data : res.data.items || []);
-    } catch { message.error('Failed to load users'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load users')); }
     setRolesLoading(false);
   };
 
@@ -126,10 +126,8 @@ export default function UserManagement() {
       }
       setUserModalOpen(false);
       loadUsers();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to save user'));
     } finally {
       setSaving(false);
     }
@@ -150,8 +148,8 @@ export default function UserManagement() {
       await api.put(`/auth/users/${user.id}`, { enabled });
       message.success(`User ${enabled ? 'enabled' : 'disabled'}`);
       loadUsers();
-    } catch {
-      message.error('Update failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Update failed'));
     }
   };
 
@@ -169,8 +167,8 @@ export default function UserManagement() {
       });
       message.success('Password reset successfully');
       setResetModalOpen(false);
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Password reset failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Password reset failed'));
     }
   };
 

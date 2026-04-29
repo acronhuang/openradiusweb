@@ -71,8 +71,8 @@ export default function CertificatesPage() {
       const activeCa = certs.find((c) => c.cert_type === 'ca' && c.is_active) || null;
       const activeServer = certs.find((c) => c.cert_type === 'server' && c.is_active) || null;
       setSummary({ ca: activeCa, server: activeServer });
-    } catch {
-      message.error('Failed to load certificates');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to load certificates'));
     }
     setLoading(false);
   };
@@ -99,10 +99,8 @@ export default function CertificatesPage() {
       message.success('CA certificate generated');
       setGenerateCaOpen(false);
       loadCertificates();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to generate CA certificate'));
     } finally {
       setSaving(false);
     }
@@ -135,10 +133,8 @@ export default function CertificatesPage() {
       message.success('Server certificate generated');
       setGenerateServerOpen(false);
       loadCertificates();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to generate server certificate'));
     } finally {
       setSaving(false);
     }
@@ -159,10 +155,8 @@ export default function CertificatesPage() {
       message.success('Certificate imported');
       setImportOpen(false);
       loadCertificates();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to import certificate'));
     } finally {
       setSaving(false);
     }
@@ -174,8 +168,8 @@ export default function CertificatesPage() {
       await api.put(`/certificates/${id}/activate`);
       message.success('Certificate activated');
       loadCertificates();
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Activation failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Activation failed'));
     }
   };
 
@@ -194,8 +188,8 @@ export default function CertificatesPage() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
-    } catch {
-      message.error('Download failed');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Download failed'));
     }
   };
 

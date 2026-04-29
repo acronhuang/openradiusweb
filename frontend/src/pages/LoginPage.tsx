@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Form, Input, Button, Card, Typography, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import api from '../api';
+import api, { extractErrorMessage } from '../api';
 
 const { Title } = Typography;
 
@@ -17,8 +17,8 @@ export default function LoginPage() {
       localStorage.setItem('orw_token', res.data.access_token);
       message.success('Login successful');
       navigate('/');
-    } catch {
-      message.error('Invalid username or password');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Invalid username or password'));
     } finally {
       setLoading(false);
     }

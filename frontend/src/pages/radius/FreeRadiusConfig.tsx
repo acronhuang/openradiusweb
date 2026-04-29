@@ -8,7 +8,7 @@ import {
   CheckCircleOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../../api';
+import api, { extractErrorMessage } from '../../api';
 
 const { Title, Text } = Typography;
 
@@ -85,7 +85,7 @@ export default function FreeRadiusConfig() {
         nas_clients_count: sourceData.nas_clients ?? 0,
         active_certs_count: sourceData.active_certificates ?? 0,
       });
-    } catch { message.error('Failed to load FreeRADIUS config status'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load FreeRADIUS config status')); }
     setLoading(false);
   };
 
@@ -123,8 +123,8 @@ export default function FreeRadiusConfig() {
           files: [{ name: 'info', content: '# No configuration files generated yet.\n# Add LDAP servers, realms, NAS clients, or certificates first.' }],
         });
       }
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Failed to generate preview');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to generate preview'));
       setPreviewOpen(false);
     } finally {
       setPreviewLoading(false);
@@ -138,8 +138,8 @@ export default function FreeRadiusConfig() {
       message.success('FreeRADIUS configuration apply request sent');
       loadStatus();
       loadHistory();
-    } catch (err: any) {
-      message.error(err?.response?.data?.detail || 'Failed to apply configuration');
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to apply configuration'));
     } finally {
       setApplying(false);
     }

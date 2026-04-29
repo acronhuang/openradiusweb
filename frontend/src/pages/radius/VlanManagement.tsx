@@ -61,7 +61,7 @@ export default function VlanManagement() {
     try {
       const res = await api.get('/vlans');
       setVlans(res.data.items || []);
-    } catch { message.error('Failed to load VLANs'); }
+    } catch (err) { message.error(extractErrorMessage(err, 'Failed to load VLANs')); }
     setLoading(false);
   };
 
@@ -98,8 +98,8 @@ export default function VlanManagement() {
       }
       setModalOpen(false);
       loadVlans();
-    } catch (err: any) {
-      if (err?.response?.data?.detail) message.error(err.response.data.detail);
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to save VLAN'));
     } finally {
       setSaving(false);
     }
