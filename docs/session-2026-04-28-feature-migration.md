@@ -303,3 +303,7 @@ services/gateway/
 ---
 
 **Session 結束狀態：** 工作樹有未提交變更，所有檔案在當前狀態下測試通過、lint 通過。尚未 `git commit` — 等使用者決定如何分批 commit（一次大 PR vs. 按 round 拆 PR）。
+
+---
+
+**接續：** 後續 Round 7–14（CRUD 批次 / NATS 批次 / 前端 UX / 複雜批次 / 收尾清理 → 19/19 migration 完成）記錄於 [`session-2026-04-29-migration-completion.md`](session-2026-04-29-migration-completion.md)。
