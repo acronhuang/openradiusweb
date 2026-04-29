@@ -21,7 +21,7 @@ from orw_common.logging import setup_logging
 from orw_common import nats_client
 
 from routes import (
-    policies, radius_auth_log,
+    policies,
     certificates,
 )
 from features.auth import auth_router, profile_router
@@ -39,6 +39,7 @@ from features.freeradius_config import freeradius_config_router
 from features.devices import devices_router
 from features.network_devices import network_devices_router
 from features.dot1x_overview import dot1x_overview_router
+from features.radius_auth_log import radius_auth_log_router
 
 settings = get_settings()
 log = setup_logging("gateway")
@@ -158,7 +159,7 @@ app.include_router(profile_router, prefix=prefix, tags=["Profile"])
 app.include_router(devices_router, prefix=prefix, tags=["Devices"])
 app.include_router(network_devices_router, prefix=prefix, tags=["Network Devices"])
 app.include_router(policies.router, prefix=prefix, tags=["Policies"])
-app.include_router(radius_auth_log.router, prefix=prefix, tags=["RADIUS Auth Log"])
+app.include_router(radius_auth_log_router, prefix=prefix, tags=["RADIUS Auth Log"])
 app.include_router(coa_router, prefix=prefix, tags=["Change of Authorization"])
 app.include_router(certificates.router, prefix=prefix, tags=["Certificates"])
 app.include_router(ldap_servers_router, prefix=prefix, tags=["LDAP Servers"])
