@@ -2,7 +2,7 @@
 
 Tracks the migration of `services/gateway/routes/<resource>.py` files into the standard feature-oriented layout `services/gateway/features/<name>/` per [development-manual.md §10.6.3](development-manual.md#1063-migration-path-for-the-existing-flat-routes).
 
-**Last updated:** 2026-04-29 (15 routes migrated — NATS batch complete: + `network_devices/`)
+**Last updated:** 2026-04-29 (16 routes migrated — complex batch started: + `dot1x_overview/`)
 
 ## Status Legend
 
@@ -32,13 +32,13 @@ Feature group numbers below reference [development-manual.md §2.2](development-
 | `[ ]` | `routes/certificates.py` | `features/certificates/` | 10 — Certificates | Crypto-heavy; reuse `shared/orw_common` atoms |
 | `[x]` | `routes/network_devices.py` | `features/network_devices/` | 11 — Switch management | 6 endpoints + 2 NATS subjects (orw.switch.poll_requested + orw.switch.set_vlan); snmp_community → snmp_community_encrypted column-mapping; port-list LEFT JOINs devices for connected_device JSON; 11 pure-unit tests |
 | `[x]` | `routes/audit.py` | `features/audit/` | 12 — Audit & logs | Read-only template (no `schemas.py`/no audit-of-audit); CSV serialization at route layer; 9 pure-unit tests |
-| `[ ]` | `routes/dot1x_overview.py` | `features/dot1x_overview/` | 13 — 802.1X overview | Aggregate queries only |
+| `[x]` | `routes/dot1x_overview.py` | `features/dot1x_overview/` | 13 — 802.1X overview | 1 endpoint × 10 atomic queries across 9 tables; 5 small block-builder helpers in service for shape-and-default logic; 11 pure-unit tests |
 | `[x]` | `routes/settings.py` | `features/settings/` | 15 — System settings | CRUD + NATS publisher (service-restart) + health probes; secret-masking on read AND audit; 13 pure-unit tests |
 | `[x]` | `routes/health.py` | `features/health/` | 16 — Health & monitoring | Minimal-feature template (only `routes.py` + `__init__.py`) |
 
-**Migrated:** 15 / 19
+**Migrated:** 16 / 19
 **In progress:** 0
-**Remaining:** 4
+**Remaining:** 3
 
 ## Canonical templates
 
