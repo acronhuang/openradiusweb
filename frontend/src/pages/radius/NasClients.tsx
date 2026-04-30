@@ -17,7 +17,7 @@ interface NasClient {
   id: string;
   name: string;
   ip_address: string;
-  secret: string;
+  shared_secret: string;
   shortname: string;
   nas_type: string;
   description: string;
@@ -68,7 +68,7 @@ export default function NasClients() {
     form.setFieldsValue({
       name: client.name,
       ip_address: client.ip_address,
-      secret: undefined,
+      shared_secret: undefined,
       shortname: client.shortname,
       nas_type: client.nas_type,
       description: client.description,
@@ -83,9 +83,9 @@ export default function NasClients() {
       setSaving(true);
 
       const payload: any = { ...values };
-      // On edit, omit secret if left blank
-      if (editingClient && !payload.secret) {
-        delete payload.secret;
+      // On edit, omit shared_secret if left blank (means "unchanged")
+      if (editingClient && !payload.shared_secret) {
+        delete payload.shared_secret;
       }
 
       if (editingClient) {
@@ -207,8 +207,8 @@ export default function NasClients() {
               <Input placeholder="e.g., core-sw1" style={{ width: 200 }} />
             </Form.Item>
           </Space>
-          <Form.Item name="secret" label="Shared Secret"
-            rules={editingClient ? [] : [{ required: true, message: 'Secret is required' }]}>
+          <Form.Item name="shared_secret" label="Shared Secret"
+            rules={editingClient ? [] : [{ required: true, message: 'Shared secret is required' }]}>
             <Input.Password placeholder={editingClient ? '(unchanged)' : 'Enter RADIUS shared secret'} />
           </Form.Item>
           <Form.Item name="nas_type" label="NAS Type">
