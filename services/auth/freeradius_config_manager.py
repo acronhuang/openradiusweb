@@ -462,22 +462,16 @@ class FreeRADIUSConfigManager:
         ])
 
         for client in clients:
-            # Convert IP address (may be returned as IPv4Address object)
+            # ip_address is VARCHAR(50) so it can already carry CIDR notation
+            # (e.g. "10.0.0.0/24") in a single field — no separate prefix column.
             ip_addr = str(client["ip_address"])
             shortname = client.get("shortname") or client["name"][:31]
-            secret = client.get("shared_secret_encrypted", "changeme")
+            secret = client.get("secret_encrypted", "changeme")
             nas_type = client.get("nas_type", "other")
             description = client.get("description", "")
 
             lines.append(f"client {shortname} {{")
-
-            # Handle CIDR notation for network ranges
-            ip_prefix = client.get("ip_prefix", 32)
-            if ip_prefix and int(ip_prefix) < 32:
-                lines.append(f"    ipaddr = {ip_addr}/{ip_prefix}")
-            else:
-                lines.append(f"    ipaddr = {ip_addr}")
-
+            lines.append(f"    ipaddr = {ip_addr}")
             lines.append(f"    secret = {secret}")
             lines.append(f"    shortname = {shortname}")
             lines.append(f"    nas_type = {nas_type}")
