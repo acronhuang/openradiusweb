@@ -51,16 +51,26 @@ for site in /etc/freeradius/orw-managed/sites-available/*; do
     fi
 done
 
-# Copy proxy.conf if generated
+# Symlink proxy.conf and clients.conf into the FreeRADIUS read path.
+#
+# We use `ln -sf` rather than `cp` so that the freeradius_config_watcher's
+# subsequent runtime updates to the orw-managed files are reflected
+# immediately at the read path (and picked up by FreeRADIUS at the next HUP)
+# — without needing a container restart. Matches the symlink pattern
+# already used above for mods-enabled and sites-enabled.
+#
+# The `[ -f ... ]` guard keeps the bundled-default fallback when the initial
+# generate-and-apply step failed (e.g. DB unreachable, schema mismatch).
 if [ -f /etc/freeradius/orw-managed/proxy.conf ]; then
-    cp /etc/freeradius/orw-managed/proxy.conf /etc/freeradius/proxy.conf
-    echo "Applied proxy.conf"
+    rm -f /etc/freeradius/proxy.conf
+    ln -sf /etc/freeradius/orw-managed/proxy.conf /etc/freeradius/proxy.conf
+    echo "Linked proxy.conf -> orw-managed/proxy.conf"
 fi
 
-# Copy clients.conf if generated
 if [ -f /etc/freeradius/orw-managed/clients.conf ]; then
-    cp /etc/freeradius/orw-managed/clients.conf /etc/freeradius/clients.conf
-    echo "Applied clients.conf"
+    rm -f /etc/freeradius/clients.conf
+    ln -sf /etc/freeradius/orw-managed/clients.conf /etc/freeradius/clients.conf
+    echo "Linked clients.conf -> orw-managed/clients.conf"
 fi
 
 # Set permissions
