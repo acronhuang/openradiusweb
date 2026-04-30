@@ -123,13 +123,18 @@ class FreeRADIUSConfigManager:
         )
 
     def _load_system_settings(self, category: str) -> dict[str, str]:
-        """Load system settings for a given category as a key-value dict."""
+        """Load system settings for a given category as a key-value dict.
+
+        Schema columns are `setting_key` and `setting_value` (per
+        migrations/002_settings_radius_features.sql); aliased to k/v here so
+        the dict-comp below stays readable.
+        """
         rows = self._fetch_all(
-            "SELECT key, value FROM system_settings "
+            "SELECT setting_key AS k, setting_value AS v FROM system_settings "
             "WHERE category = %(category)s",
             {"category": category},
         )
-        return {r["key"]: r["value"] for r in rows}
+        return {r["k"]: r["v"] for r in rows}
 
     # ----------------------------------------------------------
     # Config generators
