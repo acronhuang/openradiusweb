@@ -63,19 +63,25 @@ class TestBuildSafeSetClause:
         assert "bind_password =" not in clause
 
     def test_type_casts(self):
-        """type_casts adds PostgreSQL ::type suffix."""
+        """type_casts emits CAST(:name AS type) — NOT :name::type.
+
+        See tests/unit/test_no_inline_inet_cast.py for why the trailing
+        :: typecast form is forbidden (asyncpg preprocessor mis-parses it).
+        """
         updates = {"conditions": "[{}]", "name": "test-policy"}
         clause, params = build_safe_set_clause(
             updates, POLICY_UPDATE_COLUMNS, type_casts=POLICY_TYPE_CASTS
         )
-        assert "conditions = :conditions::jsonb" in clause
+        assert "conditions = CAST(:conditions AS jsonb)" in clause
         assert "name = :name" in clause
         # name should NOT have a cast
-        assert "name = :name::" not in clause
+        assert "CAST(:name " not in clause
+        # Forbid the broken trailing-:: form
+        assert "::jsonb" not in clause
         assert params["conditions"] == "[{}]"
 
     def test_multiple_type_casts(self):
-        """Multiple JSONB casts are applied correctly."""
+        """Multiple JSONB casts all emitted in CAST(:name AS type) form."""
         updates = {
             "conditions": "[]",
             "match_actions": "[]",
@@ -84,9 +90,10 @@ class TestBuildSafeSetClause:
         clause, params = build_safe_set_clause(
             updates, POLICY_UPDATE_COLUMNS, type_casts=POLICY_TYPE_CASTS
         )
-        assert "conditions = :conditions::jsonb" in clause
-        assert "match_actions = :match_actions::jsonb" in clause
-        assert "no_match_actions = :no_match_actions::jsonb" in clause
+        assert "conditions = CAST(:conditions AS jsonb)" in clause
+        assert "match_actions = CAST(:match_actions AS jsonb)" in clause
+        assert "no_match_actions = CAST(:no_match_actions AS jsonb)" in clause
+        assert "::jsonb" not in clause
 
     def test_sql_injection_in_column_name(self):
         """Malicious column names are rejected."""
