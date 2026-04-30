@@ -19,7 +19,10 @@ def build_safe_set_clause(
         column_map: Optional dict mapping request field names to DB column names.
                     e.g. {"bind_password": "bind_password_encrypted"}
         type_casts: Optional dict of column->type for PostgreSQL type casts.
-                    e.g. {"conditions": "jsonb"}  →  conditions = :conditions::jsonb
+                    e.g. {"conditions": "jsonb"} →
+                         conditions = CAST(:conditions AS jsonb)
+                    (Avoid the `:name::type` form — asyncpg's named-param
+                    preprocessor mis-parses the trailing :: typecast.)
 
     Returns:
         Tuple of (set_clause_str, params_dict).
@@ -40,8 +43,10 @@ def build_safe_set_clause(
             continue  # silently skip unknown columns
         param_name = db_col
         cast = type_casts.get(db_col, "")
-        cast_suffix = f"::{cast}" if cast else ""
-        set_parts.append(f"{db_col} = :{param_name}{cast_suffix}")
+        if cast:
+            set_parts.append(f"{db_col} = CAST(:{param_name} AS {cast})")
+        else:
+            set_parts.append(f"{db_col} = :{param_name}")
         params[param_name] = value
 
     if not set_parts:

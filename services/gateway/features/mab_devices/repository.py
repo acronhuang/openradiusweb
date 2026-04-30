@@ -101,7 +101,7 @@ async def radius_lookup_mac(
         text(
             "SELECT id, mac_address, name, device_type, assigned_vlan_id, enabled "
             "FROM mab_devices "
-            "WHERE mac_address = :mac::macaddr "
+            "WHERE mac_address = CAST(:mac AS macaddr) "
             "AND enabled = true "
             "AND (expiry_date IS NULL OR expiry_date > NOW()) "
             "LIMIT 1"
@@ -133,7 +133,7 @@ async def insert_mab_device(
             "INSERT INTO mab_devices "
             "(mac_address, name, description, device_type, "
             "assigned_vlan_id, enabled, expiry_date, tenant_id, created_by) "
-            "VALUES (:mac::macaddr, :name, :description, :device_type, "
+            "VALUES (CAST(:mac AS macaddr), :name, :description, :device_type, "
             ":assigned_vlan_id, :enabled, :expiry_date, :tenant_id, :created_by) "
             f"RETURNING {_FULL_COLS}"
         ),
@@ -202,7 +202,7 @@ async def bulk_insert_mab_device(
             "INSERT INTO mab_devices "
             "(mac_address, name, device_type, assigned_vlan_id, "
             "enabled, tenant_id, created_by) "
-            "VALUES (:mac::macaddr, :name, :device_type, "
+            "VALUES (CAST(:mac AS macaddr), :name, :device_type, "
             ":assigned_vlan_id, true, :tenant_id, :created_by) "
             "ON CONFLICT (mac_address, tenant_id) DO NOTHING "
             "RETURNING id"

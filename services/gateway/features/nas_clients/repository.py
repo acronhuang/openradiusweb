@@ -2,7 +2,9 @@
 
 The DB column is `secret_encrypted` but the request field is
 `shared_secret` — the column-mapping lives here so the route layer
-doesn't carry SQL detail. Same for the `::inet` cast on `ip_address`.
+doesn't carry SQL detail. The `ip_address` column is VARCHAR(50) (per
+migrations/002) and accepts CIDR strings like "10.0.0.0/24" directly,
+so no INET cast is needed.
 """
 from typing import Any, Mapping, Optional
 from uuid import UUID
@@ -84,7 +86,7 @@ async def insert_nas_client(
             "INSERT INTO radius_nas_clients "
             "(name, ip_address, secret_encrypted, shortname, "
             "nas_type, description, tenant_id) "
-            "VALUES (:name, :ip_address::inet, :shared_secret, "
+            "VALUES (:name, :ip_address, :shared_secret, "
             ":shortname, :nas_type, :description, :tenant_id) "
             f"RETURNING {_PUBLIC_COLS}"
         ),
@@ -107,10 +109,11 @@ async def insert_nas_client(
 async def update_nas_client(
     db: AsyncSession, *, tenant_id: str, nas_id: UUID, updates: dict,
 ) -> Optional[Mapping[str, Any]]:
-    """Partial update with two SQL details encapsulated:
+    """Partial update with one SQL detail encapsulated:
 
     - `shared_secret` (request field) → `secret_encrypted` (DB column)
-    - `ip_address` gets the `::inet` cast
+
+    `ip_address` is VARCHAR(50) so no INET cast is needed.
 
     Returns the updated row, or None if (id, tenant) didn't match.
     Raises ValueError if `updates` contains no allowed columns.
@@ -120,10 +123,6 @@ async def update_nas_client(
         NAS_CLIENT_UPDATE_COLUMNS,
         column_map={"shared_secret": "secret_encrypted"},
     )
-    if "ip_address" in params:
-        set_clause = set_clause.replace(
-            "ip_address = :ip_address", "ip_address = :ip_address::inet"
-        )
     params["id"] = str(nas_id)
     params["tenant_id"] = tenant_id
     result = await db.execute(

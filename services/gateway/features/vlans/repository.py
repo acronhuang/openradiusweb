@@ -88,7 +88,7 @@ async def insert_vlan(
             "INSERT INTO vlans "
             "(vlan_id, name, description, purpose, subnet, enabled, tenant_id) "
             "VALUES (:vlan_id, :name, :description, :purpose, "
-            ":subnet::cidr, :enabled, :tenant_id) "
+            "CAST(:subnet AS cidr), :enabled, :tenant_id) "
             f"RETURNING {_SELECT_COLS}"
         ),
         {
@@ -116,9 +116,13 @@ async def update_vlan(
     Raises ValueError if `updates` contains no allowed columns.
     """
     set_clause, params = build_safe_set_clause(updates, VLAN_UPDATE_COLUMNS)
-    # `subnet` needs an explicit ::cidr cast.
+    # `subnet` needs an explicit cidr cast — use the CAST(:name AS type)
+    # form, not the trailing :: typecast, which asyncpg mis-parses.
+    # See tests/unit/test_no_inline_inet_cast.py.
     if "subnet" in params:
-        set_clause = set_clause.replace("subnet = :subnet", "subnet = :subnet::cidr")
+        set_clause = set_clause.replace(
+            "subnet = :subnet", "subnet = CAST(:subnet AS cidr)"
+        )
     params["id"] = str(vlan_uuid)
     params["tenant_id"] = tenant_id
     result = await db.execute(

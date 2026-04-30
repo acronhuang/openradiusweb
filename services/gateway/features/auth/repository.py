@@ -200,7 +200,7 @@ async def upsert_user_preferences(
         text(
             "INSERT INTO user_preferences "
             "(user_id, timezone, language, theme, notifications_enabled) "
-            "VALUES (:user_id::uuid, :timezone, :language, :theme, :notifications_enabled) "
+            "VALUES (CAST(:user_id AS uuid), :timezone, :language, :theme, :notifications_enabled) "
             "ON CONFLICT (user_id) DO UPDATE SET "
             "timezone = :timezone, language = :language, "
             "theme = :theme, notifications_enabled = :notifications_enabled, "

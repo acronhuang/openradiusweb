@@ -105,8 +105,9 @@ async def insert_policy(
             "INSERT INTO policies "
             "(name, description, priority, conditions, match_actions, "
             "no_match_actions, enabled, tenant_id, created_by) "
-            "VALUES (:name, :description, :priority, :conditions::jsonb, "
-            ":match_actions::jsonb, :no_match_actions::jsonb, :enabled, "
+            "VALUES (:name, :description, :priority, "
+            "CAST(:conditions AS jsonb), CAST(:match_actions AS jsonb), "
+            "CAST(:no_match_actions AS jsonb), :enabled, "
             ":tenant_id, :created_by) RETURNING *"
         ),
         {

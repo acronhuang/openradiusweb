@@ -125,7 +125,10 @@ def _active_session_clause(
     conditions = ["rs.status = 'active'"]
     params: dict = {}
     if nas_ip:
-        conditions.append("rs.nas_ip = :nas_ip::inet")
+        # Use CAST(:name AS type) form, not the trailing :: typecast —
+        # asyncpg's named-param preprocessor mis-parses the latter.
+        # See tests/unit/test_no_inline_inet_cast.py.
+        conditions.append("rs.nas_ip = CAST(:nas_ip AS inet)")
         params["nas_ip"] = nas_ip
     if vlan:
         conditions.append("rs.assigned_vlan = :vlan")
