@@ -27,7 +27,11 @@ class LDAPServerCreate(BaseModel):
     search_timeout_seconds: int = Field(10, ge=1, le=60)
     idle_timeout_seconds: int = Field(300, ge=30, le=3600)
     tls_ca_cert: Optional[str] = None
-    tls_require_cert: bool = True
+    # tls_require_cert is a VARCHAR enum in the schema (DEFAULT 'demand'),
+    # not a bool. Allowed values per OpenLDAP / FreeRADIUS rlm_ldap docs:
+    # 'never' / 'allow' / 'try' / 'demand'. Old code typed this as bool
+    # which made asyncpg reject the request with "expected str, got bool".
+    tls_require_cert: str = Field("demand", pattern="^(never|allow|try|demand)$")
     priority: int = Field(100, ge=0, le=9999)
     enabled: bool = True
 
@@ -54,6 +58,6 @@ class LDAPServerUpdate(BaseModel):
     search_timeout_seconds: Optional[int] = Field(None, ge=1, le=60)
     idle_timeout_seconds: Optional[int] = Field(None, ge=30, le=3600)
     tls_ca_cert: Optional[str] = None
-    tls_require_cert: Optional[bool] = None
+    tls_require_cert: Optional[str] = Field(None, pattern="^(never|allow|try|demand)$")
     priority: Optional[int] = Field(None, ge=0, le=9999)
     enabled: Optional[bool] = None
