@@ -12,8 +12,14 @@ class LDAPServerCreate(BaseModel):
     port: int = Field(389, ge=1, le=65535)
     use_tls: bool = False
     use_starttls: bool = False
-    bind_dn: Optional[str] = Field(None, max_length=512)
-    bind_password: Optional[str] = None
+    # bind_dn / bind_password are NOT NULL in the DB schema (see
+    # migrations/002_settings_radius_features.sql). Model used to type
+    # them as Optional which let the API accept a blank submission and
+    # then 500 with `null value in column ... violates not-null`.
+    # Anonymous-bind would need both schema and freeradius template
+    # changes; if/when that's a real ask, lift the constraint then.
+    bind_dn: str = Field(..., min_length=1, max_length=512)
+    bind_password: str = Field(..., min_length=1)
     base_dn: str = Field(..., min_length=1, max_length=512)
     user_search_filter: str = Field("(sAMAccountName={0})", max_length=512)
     user_search_base: Optional[str] = Field(None, max_length=512)
