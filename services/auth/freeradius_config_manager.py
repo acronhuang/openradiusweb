@@ -190,13 +190,14 @@ class FreeRADIUSConfigManager:
         if has_eap:
             configs["mods-available/eap"] = eap_content
 
-        # LDAP — one config per enabled server; collect module names so the
-        # site template can iterate over them.
-        ldap_module_names: list[str] = []
-        for filename, content in self.generate_ldap_configs():
+        # LDAP — one config FILE (mods-available/ldap_orw) but multiple
+        # `ldap NAME { ... }` MODULE declarations inside it (one per server).
+        # Site templates need the inner module NAMES, not the filename --
+        # otherwise freeradius rejects with "Failed to find ldap_orw as a
+        # module or policy".
+        ldap_files, ldap_module_names = self.generate_ldap_configs()
+        for filename, content in ldap_files:
             configs[f"mods-available/{filename}"] = content
-            # Strip extension if present; ldap_configs returns "ldap_<name>"
-            ldap_module_names.append(filename)
 
         # Python — rlm_python3 may or may not be available. Detect at runtime
         # (the freeradius/freeradius-server:3.2.3 image does NOT bundle
@@ -305,16 +306,25 @@ class FreeRADIUSConfigManager:
             print(f"[config-manager] ERROR rendering eap.j2: {e}")
             return ""
 
-    def generate_ldap_configs(self) -> list[tuple[str, str]]:
+    def generate_ldap_configs(self) -> tuple[list[tuple[str, str]], list[str]]:
         """
-        Generate mods-available/ldap_<name> for each enabled LDAP server.
+        Generate mods-available/ldap_orw for each enabled LDAP server.
+
+        All servers are rendered into a single file (`mods-available/ldap_orw`)
+        but each server gets its own `ldap NAME { ... }` declaration inside
+        with NAME = `ldap_<safe_name_of_server>`. Site templates need those
+        actual NAMES (not the filename) to call the right module per request.
 
         Returns:
-            List of (filename, content) tuples.
+            (configs, module_names) — configs is list of (filename, content);
+            module_names is the list of `ldap NAME` strings declared inside
+            those configs. Caller passes module_names to the site templates;
+            using the filename instead would crash freeradius with
+            "Failed to find <filename> as a module or policy".
         """
         servers = self._load_ldap_servers()
         if not servers:
-            return []
+            return [], []
 
         # Prepare template variables for each server
         rendered_servers = []
@@ -381,10 +391,11 @@ class FreeRADIUSConfigManager:
             )
             results.append(("ldap_orw", combined_content))
 
-            return results
+            module_names = [s["module_name"] for s in rendered_servers]
+            return results, module_names
         except Exception as e:
             print(f"[config-manager] ERROR rendering ldap.j2: {e}")
-            return []
+            return [], []
 
     def generate_proxy_config(self) -> str:
         """
