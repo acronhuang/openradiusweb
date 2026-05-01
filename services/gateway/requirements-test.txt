@@ -6,3 +6,8 @@ coverage>=7.4
 pytest-cov>=4.1
 # Drives sqlite+aiosqlite:///:memory: in the test config.
 aiosqlite>=0.19
+# Integration tests (services/gateway/tests/integration/) spin up a real
+# Postgres + TimescaleDB via testcontainers. Auto-skipped when Docker
+# isn't available, so these deps only matter for full local/CI runs.
+testcontainers[postgres]>=4.0
+psycopg2-binary>=2.9
