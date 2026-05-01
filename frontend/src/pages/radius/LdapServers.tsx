@@ -260,7 +260,13 @@ export default function LdapServers() {
           <Form.Item name="bind_dn" label="Bind DN" rules={[{ required: true, message: 'Bind DN is required' }]}>
             <Input placeholder="cn=admin,dc=example,dc=com" />
           </Form.Item>
-          <Form.Item name="bind_password" label="Bind Password">
+          <Form.Item
+            name="bind_password"
+            label="Bind Password"
+            rules={editingServer
+              ? []
+              : [{ required: true, message: 'Bind Password is required' }]}
+          >
             <Input.Password placeholder={editingServer ? '(unchanged)' : 'Enter password'} />
           </Form.Item>
           <Form.Item name="base_dn" label="Base DN" rules={[{ required: true, message: 'Base DN is required' }]}>
