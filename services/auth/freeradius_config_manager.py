@@ -144,44 +144,77 @@ class FreeRADIUSConfigManager:
         """
         Generate all FreeRADIUS configuration files from database state.
 
+        Capability detection: site templates are rendered with has_eap /
+        has_python / ldap_modules flags, so they only reference modules
+        that were actually generated. This prevents radiusd from refusing
+        to parse a site that references a missing module (e.g. eap when
+        no server cert is configured).
+
         Returns:
             Dict mapping filename (relative to output_dir) to rendered content.
         """
         configs: dict[str, str] = {}
 
-        # EAP module
+        # === Capability detection (compute first, pass to site templates) ===
+
+        # EAP — only generate if active CA + server cert exist (template
+        # references real cert files, radiusd would crash if they don't).
         eap_content = self.generate_eap_config()
-        if eap_content:
+        has_eap = bool(eap_content)
+        if has_eap:
             configs["mods-available/eap"] = eap_content
 
-        # LDAP modules (one per enabled server)
+        # LDAP — one config per enabled server; collect module names so the
+        # site template can iterate over them.
+        ldap_module_names: list[str] = []
         for filename, content in self.generate_ldap_configs():
             configs[f"mods-available/{filename}"] = content
+            # Strip extension if present; ldap_configs returns "ldap_<name>"
+            ldap_module_names.append(filename)
 
-        # proxy.conf
+        # Python — rlm_python3 is installed via Dockerfile.freeradius and
+        # rlm_orw.py is bundled at /etc/freeradius/mods-config/python/orw.py.
+        python_content = self.generate_python_config()
+        has_python = bool(python_content)
+        if has_python:
+            configs["mods-available/python"] = python_content
+
+        # Realms — used by inner-tunnel for proxy
+        realms = self._load_realms()
+        realms_enabled = bool(realms)
+
+        # === Static configs (no capability dependencies) ===
+
         proxy_content = self.generate_proxy_config()
         if proxy_content:
             configs["proxy.conf"] = proxy_content
 
-        # clients.conf
         clients_content = self.generate_clients_config()
         if clients_content:
             configs["clients.conf"] = clients_content
 
-        # sites-available/default
-        default_content = self.generate_site_default()
+        # === Site configs (require capability flags) ===
+
+        default_content = self.generate_site_default(
+            has_eap=has_eap,
+            has_python=has_python,
+            ldap_modules=ldap_module_names,
+            realms_enabled=realms_enabled,
+        )
         if default_content:
             configs["sites-available/default"] = default_content
 
-        # sites-available/inner-tunnel
-        inner_tunnel_content = self.generate_site_inner_tunnel()
-        if inner_tunnel_content:
-            configs["sites-available/inner-tunnel"] = inner_tunnel_content
-
-        # mods-available/python
-        python_content = self.generate_python_config()
-        if python_content:
-            configs["mods-available/python"] = python_content
+        # inner-tunnel only makes sense when EAP is enabled — it handles
+        # the inner phase of PEAP / EAP-TTLS. Skip generation entirely if
+        # no EAP, otherwise radiusd loads a useless site.
+        if has_eap:
+            inner_tunnel_content = self.generate_site_inner_tunnel(
+                has_python=has_python,
+                ldap_modules=ldap_module_names,
+                realms_enabled=realms_enabled,
+            )
+            if inner_tunnel_content:
+                configs["sites-available/inner-tunnel"] = inner_tunnel_content
 
         return configs
 
@@ -493,287 +526,89 @@ class FreeRADIUSConfigManager:
 
         return "\n".join(lines)
 
-    def generate_site_default(self) -> str:
+    def generate_site_default(
+        self,
+        *,
+        has_eap: bool = False,
+        has_python: bool = True,
+        ldap_modules: list[str] | None = None,
+        realms_enabled: bool = False,
+    ) -> str:
+        """Render sites-available/default from site_default.j2.
+
+        Capability flags:
+        - has_eap: include eap { } block + Auth-Type EAP { } stanza.
+          Skip if no active CA/server cert (eap module won't be loaded).
+        - has_python: include orw module references. Skip if rlm_python3
+          isn't available or rlm_orw.py failed to load.
+        - ldap_modules: list of generated LDAP module names. Empty = no
+          LDAP authorize/authenticate.
+        - realms_enabled: include pre-proxy / post-proxy stanzas.
         """
-        Generate sites-available/default virtual server.
-
-        Wires up authentication, authorization, and accounting sections
-        with the configured LDAP modules, EAP, and the rlm_python hook.
-        """
-        ldap_servers = self._load_ldap_servers()
-        now = datetime.now(timezone.utc).isoformat()
-
-        # Build list of LDAP module names
-        ldap_modules = []
-        for server in ldap_servers:
-            safe_name = (
-                server["name"]
-                .lower()
-                .replace(" ", "_")
-                .replace("-", "_")
-                .replace(".", "_")
-            )
-            ldap_modules.append(f"ldap_{safe_name}")
-
-        lines = [
-            "# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY",
-            f"# Generated at: {now}",
-            "",
-            "server default {",
-            "",
-            "    listen {",
-            "        type = auth",
-            "        ipaddr = *",
-            "        port = 0",
-            "    }",
-            "",
-            "    listen {",
-            "        type = acct",
-            "        ipaddr = *",
-            "        port = 0",
-            "    }",
-            "",
-            "    #",
-            "    # Authorization - determine how to authenticate the user",
-            "    #",
-            "    authorize {",
-            "        filter_username",
-            "        preprocess",
-            "",
-            "        # Realm processing",
-            "        suffix",
-            "",
-            "        # EAP initialization",
-            "        eap {",
-            "            ok = return",
-            "        }",
-            "",
+        ldap_module_dicts = [
+            {"name": m.removeprefix("ldap_"), "module_name": m}
+            for m in (ldap_modules or [])
         ]
-
-        # Add LDAP modules for authorization lookups
-        if ldap_modules:
-            lines.append("        # LDAP user lookup")
-            for mod in ldap_modules:
-                lines.extend([
-                    f"        {mod} {{",
-                    "            fail = 1",
-                    "        }",
-                ])
-            lines.append("")
-
-        lines.extend([
-            "        # OpenRadiusWeb Python module (policy, logging)",
-            "        orw",
-            "",
-            "        expiration",
-            "        logintime",
-            "        pap",
-            "    }",
-            "",
-            "    #",
-            "    # Authentication - verify credentials",
-            "    #",
-            "    authenticate {",
-            "        Auth-Type PAP {",
-            "            pap",
-            "        }",
-            "",
-            "        Auth-Type CHAP {",
-            "            chap",
-            "        }",
-            "",
-            "        Auth-Type MS-CHAP {",
-            "            mschap",
-            "        }",
-            "",
-            "        eap",
-            "    }",
-            "",
-            "    #",
-            "    # Pre-accounting",
-            "    #",
-            "    preacct {",
-            "        preprocess",
-            "        acct_unique",
-            "        suffix",
-            "    }",
-            "",
-            "    #",
-            "    # Accounting - record session data",
-            "    #",
-            "    accounting {",
-            "        detail",
-            "        orw",
-            "    }",
-            "",
-            "    #",
-            "    # Session management",
-            "    #",
-            "    session {",
-            "    }",
-            "",
-            "    #",
-            "    # Post-authentication - log results, apply policies",
-            "    #",
-            "    post-auth {",
-            "        orw",
-            "",
-            "        Post-Auth-Type REJECT {",
-            "            orw",
-            "            attr_filter.access_reject",
-            "        }",
-            "    }",
-            "",
-            "    #",
-            "    # Pre-proxy (for proxied realms)",
-            "    #",
-            "    pre-proxy {",
-            "    }",
-            "",
-            "    #",
-            "    # Post-proxy",
-            "    #",
-            "    post-proxy {",
-            "        eap",
-            "    }",
-            "}",
-            "",
-        ])
-
-        return "\n".join(lines)
-
-    def generate_site_inner_tunnel(self) -> str:
-        """
-        Generate sites-available/inner-tunnel for PEAP/TTLS inner authentication.
-
-        The inner tunnel handles Phase 2 authentication (MSCHAPv2, GTC, PAP)
-        that occurs inside the TLS tunnel established by PEAP or TTLS.
-        """
-        ldap_servers = self._load_ldap_servers()
-        now = datetime.now(timezone.utc).isoformat()
-
-        ldap_modules = []
-        for server in ldap_servers:
-            safe_name = (
-                server["name"]
-                .lower()
-                .replace(" ", "_")
-                .replace("-", "_")
-                .replace(".", "_")
+        try:
+            template = self._jinja_env.get_template("site_default.j2")
+            return template.render(
+                generated_at=datetime.now(timezone.utc).isoformat(),
+                has_eap=has_eap,
+                has_python=has_python,
+                ldap_modules=ldap_module_dicts,
+                realms_enabled=realms_enabled,
             )
-            ldap_modules.append(f"ldap_{safe_name}")
+        except Exception as e:
+            print(f"[config-manager] ERROR rendering site_default.j2: {e}")
+            return ""
 
-        lines = [
-            "# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY",
-            f"# Generated at: {now}",
-            "",
-            "server inner-tunnel {",
-            "",
-            "    listen {",
-            "        ipaddr = 127.0.0.1",
-            "        port = 18120",
-            "        type = auth",
-            "    }",
-            "",
-            "    #",
-            "    # Inner tunnel authorization",
-            "    #",
-            "    authorize {",
-            "        filter_username",
-            "        suffix",
-            "",
+    def generate_site_inner_tunnel(
+        self,
+        *,
+        has_python: bool = True,
+        ldap_modules: list[str] | None = None,
+        realms_enabled: bool = False,
+    ) -> str:
+        """Render sites-available/inner-tunnel from site_inner_tunnel.j2.
+
+        Caller (generate_all_configs) only invokes this when has_eap is
+        true — inner-tunnel is the inner-phase site for PEAP/EAP-TTLS
+        and is meaningless without EAP.
+
+        See generate_site_default for has_python / ldap_modules semantics.
+        """
+        ldap_module_dicts = [
+            {"name": m.removeprefix("ldap_"), "module_name": m}
+            for m in (ldap_modules or [])
         ]
-
-        # LDAP modules for inner tunnel user lookup
-        if ldap_modules:
-            lines.append("        # LDAP user lookup (inner tunnel)")
-            for mod in ldap_modules:
-                lines.extend([
-                    f"        {mod} {{",
-                    "            fail = 1",
-                    "        }",
-                ])
-            lines.append("")
-
-        lines.extend([
-            "        # OpenRadiusWeb authorization",
-            "        orw",
-            "",
-            "        eap {",
-            "            ok = return",
-            "        }",
-            "",
-            "        mschap",
-            "        pap",
-            "    }",
-            "",
-            "    #",
-            "    # Inner tunnel authentication",
-            "    #",
-            "    authenticate {",
-            "        Auth-Type PAP {",
-            "            pap",
-            "        }",
-            "",
-            "        Auth-Type MS-CHAP {",
-            "            mschap",
-            "        }",
-            "",
-            "        eap",
-            "    }",
-            "",
-            "    #",
-            "    # Session management",
-            "    #",
-            "    session {",
-            "    }",
-            "",
-            "    #",
-            "    # Post-authentication",
-            "    #",
-            "    post-auth {",
-            "        orw",
-            "",
-            "        Post-Auth-Type REJECT {",
-            "            orw",
-            "            attr_filter.access_reject",
-            "        }",
-            "    }",
-            "}",
-            "",
-        ])
-
-        return "\n".join(lines)
+        try:
+            template = self._jinja_env.get_template("site_inner_tunnel.j2")
+            return template.render(
+                generated_at=datetime.now(timezone.utc).isoformat(),
+                has_python=has_python,
+                ldap_modules=ldap_module_dicts,
+                realms_enabled=realms_enabled,
+            )
+        except Exception as e:
+            print(f"[config-manager] ERROR rendering site_inner_tunnel.j2: {e}")
+            return ""
 
     def generate_python_config(self) -> str:
+        """Render mods-available/python from python.j2.
+
+        Targets rlm_python3 (declared via 'python3 orw {' in the template).
+        rlm_python3 must be available in the freeradius container — the
+        Dockerfile installs freeradius-python3 to ensure that.
         """
-        Generate mods-available/python for the rlm_python3 OpenRadiusWeb module.
-
-        Points FreeRADIUS at the orw.py script that logs auth attempts and
-        applies authorization policies.
-        """
-        now = datetime.now(timezone.utc).isoformat()
-
-        lines = [
-            "# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY",
-            f"# Generated at: {now}",
-            "#",
-            "# Python module for OpenRadiusWeb integration",
-            "",
-            "python orw {",
-            '    module = orw',
-            '    python_path = "/etc/freeradius/mods-config/python"',
-            "",
-            "    mod_instantiate = instantiate",
-            "    mod_authorize = authorize",
-            "    mod_post_auth = post_auth",
-            "    mod_accounting = accounting",
-            "    mod_detach = detach",
-            "}",
-            "",
-        ]
-
-        return "\n".join(lines)
+        try:
+            template = self._jinja_env.get_template("python.j2")
+            return template.render(
+                generated_at=datetime.now(timezone.utc).isoformat(),
+                python_path="/etc/freeradius/mods-config/python",
+            )
+        except Exception as e:
+            print(f"[config-manager] ERROR rendering python.j2: {e}")
+            return ""
 
     # ----------------------------------------------------------
     # Certificate file writer

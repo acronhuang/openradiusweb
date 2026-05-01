@@ -64,6 +64,7 @@ server default {
         # chap
         # mschap
 
+{% if has_eap %}
         #
         # EAP module - sets up EAP-Message handling
         # Must come before LDAP so EAP state is initialized
@@ -71,6 +72,7 @@ server default {
         eap {
             ok = return
         }
+{% endif %}
 
 {% for ldap_mod in ldap_modules %}
         #
@@ -79,11 +81,13 @@ server default {
         {{ ldap_mod.module_name }}
 {% endfor %}
 
+{% if has_python %}
         #
         # OpenRadiusWeb Python authorization module
         # Performs custom policy checks, device profiling, etc.
         #
         orw
+{% endif %}
 
         #
         # Session validity checks
@@ -102,6 +106,7 @@ server default {
     # Actually verifies the user's credentials.
     #
     authenticate {
+{% if has_eap %}
         #
         # EAP authentication (PEAP, EAP-TLS, EAP-TTLS)
         # Handles the outer EAP negotiation
@@ -109,6 +114,7 @@ server default {
         Auth-Type EAP {
             eap
         }
+{% endif %}
 
 {% for ldap_mod in ldap_modules %}
         #
@@ -146,11 +152,13 @@ server default {
             &reply: += &session-state:
         }
 
+{% if has_python %}
         #
         # OpenRadiusWeb post-auth processing
         # Assigns VLANs, ACLs, and logs authentication results
         #
         orw
+{% endif %}
 
         #
         # Remove temporary proxy-state attributes
@@ -161,11 +169,13 @@ server default {
         # Handle authentication rejections
         #
         Post-Auth-Type REJECT {
+{% if has_python %}
             #
             # OpenRadiusWeb rejection handling
             # Logs failed authentication attempts
             #
             orw
+{% endif %}
 
             #
             # Insert short delay to throttle brute-force attacks
@@ -192,7 +202,9 @@ server default {
     # Post-proxy processing
     #
     post-proxy {
+{% if has_eap %}
         eap
+{% endif %}
     }
 {% endif %}
 
@@ -205,7 +217,9 @@ server default {
         # OpenRadiusWeb accounting handler
         # Tracks session state, gathers endpoint telemetry
         #
+{% if has_python %}
         orw
+{% endif %}
 
         #
         # Write accounting detail files for audit trail
