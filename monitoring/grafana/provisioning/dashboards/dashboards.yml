@@ -1,0 +1,24 @@
+# Grafana dashboard auto-discovery.
+#
+# Tells Grafana to load any JSON dashboard files dropped under
+# /var/lib/grafana/dashboards/ (mounted from monitoring/grafana/dashboards/
+# in compose). Drop a *.json there, restart grafana, dashboard appears.
+#
+# This PR ships the provisioning glue but no dashboards yet — building
+# good dashboards is operational work that should follow real metrics
+# observation. Filing it as a deliberate empty hook so future ops can
+# just `git add monitoring/grafana/dashboards/<name>.json` without
+# touching compose / provisioning files.
+
+apiVersion: 1
+
+providers:
+  - name: openradiusweb
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

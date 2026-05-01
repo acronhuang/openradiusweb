@@ -1,0 +1,41 @@
+# Prometheus scrape config for OpenRadiusWeb.
+#
+# Mounted into /etc/prometheus/prometheus.yml inside the prometheus
+# container (see docker-compose.prod.yml `monitoring` profile).
+#
+# Targets use the in-network service name (orw-net), not localhost —
+# prometheus is on the same compose network.
+#
+# Adding more targets: drop them into scrape_configs below. Future
+# work: add postgres_exporter / redis_exporter / nats-exporter to
+# get DB/cache/queue metrics as well; this PR only ships the gateway
+# (which already exposes /metrics via prometheus_fastapi_instrumentator).
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+  external_labels:
+    deployment: openradiusweb
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: gateway
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["gateway:8000"]
+        labels:
+          service: gateway
+
+  # NATS ships a built-in monitoring HTTP server (configured with
+  # `--http_port 8222` in compose). Prometheus-compatible metrics live
+  # at /metrics on that port.
+  - job_name: nats
+    metrics_path: /varz
+    static_configs:
+      - targets: ["nats:8222"]
+        labels:
+          service: nats

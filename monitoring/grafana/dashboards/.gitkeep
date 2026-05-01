@@ -1,0 +1,6 @@
+# Drop *.json dashboard exports here. The provisioner picks them up
+# every 30s — no compose restart needed.
+#
+# Recommended starter set (see PR description for justification):
+#   - gateway-overview.json — request rate, p95 latency, 5xx rate
+#   - nats-overview.json    — slow consumers, msg rate

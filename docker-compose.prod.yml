@@ -273,12 +273,65 @@ services:
     networks:
       - orw-net
 
+  # ============================================================
+  # Monitoring (opt-in via `--profile monitoring`)
+  #
+  # Run with:
+  #   docker compose -f docker-compose.prod.yml --env-file .env.production \
+  #     --profile monitoring up -d
+  #
+  # Without --profile monitoring, these services don't start, so the
+  # default deploy stays unaffected.
+  # ============================================================
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: orw-prometheus
+    restart: always
+    profiles: ["monitoring"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"                       # localhost only
+    networks:
+      - orw-net
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: orw-grafana
+    restart: always
+    profiles: ["monitoring"]
+    environment:
+      # GRAFANA_PASSWORD already documented in .env.example. Defaults to
+      # 'admin' if unset so first-boot doesn't crash, but the doc & PR
+      # both flag this as required-before-production.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"                       # localhost only
+    depends_on:
+      prometheus:
+        condition: service_started
+    networks:
+      - orw-net
+
 volumes:
   postgres_data:
   redis_data:
   nats_data:
   freeradius_config:
   freeradius_certs:
+  prometheus_data:
+  grafana_data:
 
 networks:
   orw-net:
