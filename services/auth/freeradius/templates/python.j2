@@ -5,8 +5,9 @@
 # Template: python.j2
 #
 # Configures rlm_python3 to load the OpenRadiusWeb (orw) RADIUS module.
-# The orw module handles custom authorization, authentication, post-auth,
-# and accounting logic via Python callbacks.
+# The orw module handles custom authorization, post-auth, and accounting
+# logic via Python callbacks. Authentication itself is owned by rlm_ldap
+# + eap, not orw.
 
 python3 orw {
     module = orw
@@ -28,8 +29,14 @@ python3 orw {
     mod_authorize = "${.module}"
     func_authorize = authorize
 
-    mod_authenticate = "${.module}"
-    func_authenticate = authenticate
+    # No mod_authenticate / func_authenticate: orw doesn't verify
+    # credentials itself (rlm_ldap + eap own that path). The site
+    # templates only call `orw` from authorize / post-auth / accounting.
+    # rlm_python3 tries to LOAD every declared func at instantiation,
+    # so declaring `func_authenticate = authenticate` here would crash
+    # the module with `module 'orw' has no attribute 'authenticate'`
+    # -- which is exactly the bug that surfaced once #49 made
+    # _rlm_python3_available() actually return True.
 
     mod_post_auth = "${.module}"
     func_post_auth = post_auth
