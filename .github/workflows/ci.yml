@@ -160,11 +160,15 @@ jobs:
           cache-dependency-path: services/gateway/requirements.txt
 
       - name: Install dependencies
-        # No service-layer deps needed; just pytest + jinja2 (already in
-        # gateway requirements-test.txt). Reusing keeps the matrix simple.
+        # The freeradius template tests need pytest + jinja2 + the docker
+        # SDK (for the `docker info` skip-gate in conftest). Reusing the
+        # gateway test requirements gives us pytest + docker; jinja2 is
+        # the auth service's own dep, installed explicitly here since
+        # there's no services/auth/requirements*.txt yet.
         run: |
           python -m pip install --upgrade pip
           pip install -r services/gateway/requirements-test.txt
+          pip install jinja2
 
       - name: Pre-pull freeradius image
         run: docker pull freeradius/freeradius-server:3.2.3
