@@ -23,11 +23,21 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from datetime import date, datetime, time
-from typing import Any, NamedTuple, Optional, Union, get_args, get_origin
+from typing import Any, NamedTuple, Union, get_args, get_origin
 from uuid import UUID
 
 import pytest
 from pydantic import BaseModel
+
+from orw_common.models.ldap_server import LDAPServerCreate, LDAPServerUpdate
+from orw_common.models.nas_client import NASClientCreate, NASClientUpdate
+from orw_common.models.radius_realm import RealmCreate, RealmUpdate
+from orw_common.models.mab_device import MabDeviceCreate, MabDeviceUpdate
+from orw_common.models.policy import PolicyCreate, PolicyUpdate
+from orw_common.models.vlan import VlanCreate, VlanUpdate
+from orw_common.models.group_vlan_mapping import (
+    GroupVlanMappingCreate, GroupVlanMappingUpdate,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MIGRATIONS_DIR = REPO_ROOT / "migrations"
@@ -204,16 +214,9 @@ def _python_type_compatible_with_pg(python_type: type, pg_type: str) -> bool:
 # by a route/service layer before INSERT (so user-facing Pydantic doesn't
 # need to require them). For the generic case where the API just accepts
 # null and 500s downstream, FIX THE MODEL — that's the point of the check.
-
-from orw_common.models.ldap_server import LDAPServerCreate, LDAPServerUpdate
-from orw_common.models.nas_client import NASClientCreate, NASClientUpdate
-from orw_common.models.radius_realm import RealmCreate, RealmUpdate
-from orw_common.models.mab_device import MabDeviceCreate, MabDeviceUpdate
-from orw_common.models.policy import PolicyCreate, PolicyUpdate
-from orw_common.models.vlan import VlanCreate, VlanUpdate
-from orw_common.models.group_vlan_mapping import (
-    GroupVlanMappingCreate, GroupVlanMappingUpdate,
-)
+#
+# Models are imported at the top of the file (ruff E402); they're used
+# in the CONTRACTS table immediately below.
 
 
 # (model, table, field_to_column rename map, extra_skip, nullable_skip)
