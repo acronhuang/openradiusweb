@@ -68,10 +68,12 @@ server inner-tunnel {
         #
         pap
 
+{% if has_python %}
         #
         # OpenRadiusWeb inner tunnel authorization
         #
         orw
+{% endif %}
     }
 
     #
@@ -116,11 +118,13 @@ server inner-tunnel {
     # Post-authentication processing (inner tunnel)
     #
     post-auth {
+{% if has_python %}
         #
         # OpenRadiusWeb inner tunnel post-auth
         # Applies policies, VLAN assignments, etc.
         #
         orw
+{% endif %}
 
         #
         # Copy reply attributes to outer session state
@@ -134,10 +138,12 @@ server inner-tunnel {
         # Handle inner tunnel rejections
         #
         Post-Auth-Type REJECT {
+{% if has_python %}
             #
             # OpenRadiusWeb inner rejection handling
             #
             orw
+{% endif %}
 
             attr_filter.access_reject
 
