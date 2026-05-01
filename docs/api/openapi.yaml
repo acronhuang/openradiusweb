@@ -1,0 +1,1479 @@
+openapi: 3.0.3
+info:
+  title: OpenRadiusWeb API
+  description: |
+    Network Access Control (NAC) REST API.
+
+    All endpoints require Bearer JWT authentication except `/auth/login` and `/health`.
+
+    See `docs/development-manual.md` Part 7 for full conventions and Part 8 for
+    decoupling guidelines.
+  version: '1.0.0'
+  contact:
+    name: OpenRadiusWeb
+    url: https://github.com/acronhuang/openradiusweb
+
+servers:
+  - url: '/api/v1'
+    description: Production
+  - url: 'http://localhost:8000/api/v1'
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Auth
+    description: Login and user management
+  - name: Devices
+    description: Device inventory and discovery
+  - name: Policies
+    description: Policy engine
+  - name: RADIUS
+    description: RADIUS auth log and configuration
+  - name: CoA
+    description: Change of Authorization
+  - name: LDAP
+    description: LDAP / Active Directory servers
+  - name: Realms
+    description: RADIUS realms / proxy
+  - name: NAS
+    description: Network Access Server clients
+  - name: VLANs
+    description: VLAN registry
+  - name: MAB
+    description: MAC Authentication Bypass
+  - name: GroupVLAN
+    description: Dynamic VLAN by AD group
+  - name: Certificates
+    description: PKI / EAP-TLS certificates
+  - name: Switches
+    description: Network device management
+  - name: Audit
+    description: Audit log
+  - name: Settings
+    description: System configuration
+  - name: Health
+    description: Service health and overview
+
+paths:
+  # ============================================================
+  # AUTH
+  # ============================================================
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Authenticate user and return JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+
+  /auth/users:
+    get:
+      tags: [Auth]
+      summary: List users (operator+)
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Paginated user list
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedUsers' }
+    post:
+      tags: [Auth]
+      summary: Create user (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserCreate' }
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /auth/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UuidPathId'
+    get:
+      tags: [Auth]
+      summary: Get user by ID
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Auth]
+      summary: Update user (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserUpdate' }
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+    delete:
+      tags: [Auth]
+      summary: Delete user (admin)
+      responses:
+        '204':
+          description: Deleted
+
+  /auth/users/{id}/reset-password:
+    post:
+      tags: [Auth]
+      summary: Admin reset user password
+      parameters:
+        - $ref: '#/components/parameters/UuidPathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_password]
+              properties:
+                new_password: { type: string, minLength: 8 }
+      responses:
+        '204':
+          description: Password reset
+
+  # ============================================================
+  # DEVICES
+  # ============================================================
+  /devices:
+    get:
+      tags: [Devices]
+      summary: List devices
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [authenticated, quarantined, blocked, unknown]
+        - in: query
+          name: type
+          schema: { type: string }
+        - in: query
+          name: search
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Paginated device list
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedDevices' }
+    post:
+      tags: [Devices]
+      summary: Upsert device by MAC
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceCreate' }
+      responses:
+        '201':
+          description: Device created/updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+
+  /devices/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UuidPathId'
+    get:
+      tags: [Devices]
+      summary: Get device
+      responses:
+        '200':
+          description: Device
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+    patch:
+      tags: [Devices]
+      summary: Update device
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceUpdate' }
+      responses:
+        '200':
+          description: Device updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+    delete:
+      tags: [Devices]
+      summary: Delete device (admin)
+      responses:
+        '204':
+          description: Deleted
+
+  /devices/{id}/properties:
+    parameters:
+      - $ref: '#/components/parameters/UuidPathId'
+    get:
+      tags: [Devices]
+      summary: Get device properties (EAV)
+      parameters:
+        - in: query
+          name: category
+          schema: { type: string }
+      responses:
+        '200':
+          description: Properties
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DeviceProperty' }
+    post:
+      tags: [Devices]
+      summary: Add device property
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DevicePropertyCreate' }
+      responses:
+        '201':
+          description: Property added
+
+  # ============================================================
+  # POLICIES
+  # ============================================================
+  /policies:
+    get:
+      tags: [Policies]
+      summary: List policies
+      parameters:
+        - in: query
+          name: enabled
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Paginated policy list
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedPolicies' }
+    post:
+      tags: [Policies]
+      summary: Create policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PolicyCreate' }
+      responses:
+        '201':
+          description: Policy created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Policy' }
+
+  /policies/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UuidPathId'
+    get:
+      tags: [Policies]
+      summary: Get policy
+      responses:
+        '200':
+          description: Policy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Policy' }
+    patch:
+      tags: [Policies]
+      summary: Update policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PolicyUpdate' }
+      responses:
+        '200':
+          description: Policy updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Policy' }
+    delete:
+      tags: [Policies]
+      summary: Delete policy (admin)
+      responses:
+        '204':
+          description: Deleted
+
+  /policies/{id}/simulate:
+    post:
+      tags: [Policies]
+      summary: Simulate single policy against device context
+      parameters:
+        - $ref: '#/components/parameters/UuidPathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceContext' }
+      responses:
+        '200':
+          description: Simulation result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimulationResult' }
+
+  /policies/simulate-all:
+    post:
+      tags: [Policies]
+      summary: Simulate all policies in priority order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceContext' }
+      responses:
+        '200':
+          description: Per-policy results
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SimulationResult' }
+
+  /policies/templates/list:
+    get:
+      tags: [Policies]
+      summary: List built-in policy templates
+      responses:
+        '200':
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PolicyTemplate' }
+
+  # ============================================================
+  # COA
+  # ============================================================
+  /coa/by-mac:
+    post:
+      tags: [CoA]
+      summary: Send CoA by MAC
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CoARequestByMac' }
+      responses:
+        '200':
+          description: CoA result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CoAResult' }
+
+  /coa/by-username:
+    post:
+      tags: [CoA]
+      summary: Send CoA by username
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CoARequestByUsername' }
+      responses:
+        '200':
+          description: CoA results (per session)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CoAResult' }
+
+  /coa/by-session:
+    post:
+      tags: [CoA]
+      summary: Send CoA by session ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CoARequestBySession' }
+      responses:
+        '200':
+          description: CoA result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CoAResult' }
+
+  /coa/bulk:
+    post:
+      tags: [CoA]
+      summary: Bulk CoA (max 100 targets)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CoABulkRequest' }
+      responses:
+        '200':
+          description: Aggregated results
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CoABulkResult' }
+
+  /coa/active-sessions:
+    get:
+      tags: [CoA]
+      summary: List active RADIUS sessions
+      parameters:
+        - in: query
+          name: nas_ip
+          schema: { type: string }
+        - in: query
+          name: vlan
+          schema: { type: integer }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Active sessions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedSessions' }
+
+  /coa/history:
+    get:
+      tags: [CoA]
+      summary: CoA event history
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: CoA history (audit_log)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedAuditEntries' }
+
+  # ============================================================
+  # RADIUS Auth Log
+  # ============================================================
+  /radius/auth-log:
+    get:
+      tags: [RADIUS]
+      summary: Query RADIUS authentication attempts
+      parameters:
+        - in: query
+          name: start_time
+          schema: { type: string, format: date-time }
+        - in: query
+          name: end_time
+          schema: { type: string, format: date-time }
+        - in: query
+          name: last_hours
+          schema: { type: integer }
+        - in: query
+          name: result
+          schema:
+            type: string
+            enum: [success, reject, timeout, error]
+        - in: query
+          name: calling_station_id
+          schema: { type: string }
+        - in: query
+          name: username
+          schema: { type: string }
+        - in: query
+          name: nas_ip
+          schema: { type: string }
+        - in: query
+          name: auth_method
+          schema: { type: string }
+        - in: query
+          name: failure_reason
+          schema: { type: string }
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [timestamp, calling_station_id, username]
+            default: timestamp
+        - in: query
+          name: sort_dir
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Paginated auth log
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedAuthLog' }
+
+  # ============================================================
+  # LDAP / Realms / NAS / VLANs / MAB / Group-VLAN / Certs / Switches
+  # (All follow same CRUD pattern — abbreviated; see /docs auto-spec)
+  # ============================================================
+  /ldap-servers:
+    get:
+      tags: [LDAP]
+      summary: List LDAP servers
+      responses:
+        '200':
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LdapServer' }
+    post:
+      tags: [LDAP]
+      summary: Create LDAP server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LdapServerCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LdapServer' }
+
+  /ldap-servers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/UuidPathId'
+    get:
+      tags: [LDAP]
+      responses: { '200': { description: LDAP server, content: { application/json: { schema: { $ref: '#/components/schemas/LdapServer' }}}}}
+    put:
+      tags: [LDAP]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LdapServerUpdate' }
+      responses: { '200': { description: Updated, content: { application/json: { schema: { $ref: '#/components/schemas/LdapServer' }}}}}
+    delete:
+      tags: [LDAP]
+      responses: { '204': { description: Deleted } }
+
+  /ldap-servers/{id}/test:
+    post:
+      tags: [LDAP]
+      summary: Test LDAP server connection
+      parameters:
+        - $ref: '#/components/parameters/UuidPathId'
+      responses:
+        '200':
+          description: Test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  message: { type: string }
+
+  /group-vlan-mappings:
+    get:
+      tags: [GroupVLAN]
+      summary: List group→VLAN mappings
+      responses:
+        '200':
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/GroupVlanMapping' }
+    post:
+      tags: [GroupVLAN]
+      summary: Create mapping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GroupVlanMappingCreate' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupVlanMapping' }
+
+  /group-vlan-mappings/lookup/by-groups:
+    get:
+      tags: [GroupVLAN]
+      summary: Look up VLAN for a comma-separated group list
+      parameters:
+        - in: query
+          name: groups
+          required: true
+          schema: { type: string, example: "IT-Staff,Finance" }
+      responses:
+        '200':
+          description: First-match VLAN
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vlan_id: { type: integer, nullable: true }
+                  matched_group: { type: string, nullable: true }
+
+  /mab-devices:
+    get:
+      tags: [MAB]
+      responses: { '200': { description: List, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/MabDevice' }}}}}}
+    post:
+      tags: [MAB]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MabDeviceCreate' }
+      responses: { '201': { description: Created } }
+
+  /vlans:
+    get:
+      tags: [VLANs]
+      responses: { '200': { description: List, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Vlan' }}}}}}
+    post:
+      tags: [VLANs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VlanCreate' }
+      responses: { '201': { description: Created } }
+
+  /nas-clients:
+    get:
+      tags: [NAS]
+      responses: { '200': { description: List } }
+    post:
+      tags: [NAS]
+      responses: { '201': { description: Created } }
+
+  /radius/realms:
+    get:
+      tags: [Realms]
+      responses: { '200': { description: List } }
+    post:
+      tags: [Realms]
+      responses: { '201': { description: Created } }
+
+  /certificates:
+    get:
+      tags: [Certificates]
+      responses: { '200': { description: List, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Certificate' }}}}}}
+
+  /certificates/generate-ca:
+    post:
+      tags: [Certificates]
+      summary: Generate self-signed CA
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [common_name]
+              properties:
+                common_name: { type: string }
+                key_size: { type: integer, enum: [2048, 4096], default: 2048 }
+                validity_days: { type: integer, default: 3650 }
+      responses:
+        '201':
+          description: CA generated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Certificate' }
+
+  /certificates/generate-server:
+    post:
+      tags: [Certificates]
+      summary: Generate CA-signed server cert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [common_name, ca_id]
+              properties:
+                common_name: { type: string }
+                ca_id: { type: string, format: uuid }
+                san: { type: array, items: { type: string } }
+                key_size: { type: integer, enum: [2048, 4096], default: 2048 }
+                validity_days: { type: integer, default: 365 }
+      responses:
+        '201':
+          description: Server cert generated
+
+  /network-devices:
+    get:
+      tags: [Switches]
+      responses: { '200': { description: List } }
+    post:
+      tags: [Switches]
+      responses: { '201': { description: Created } }
+
+  /freeradius-config:
+    get:
+      tags: [RADIUS]
+      summary: FreeRADIUS config status
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        config_type: { type: string }
+                        last_applied: { type: string, format: date-time, nullable: true }
+                        hash: { type: string, nullable: true }
+                        status: { type: string }
+
+  /audit-log:
+    get:
+      tags: [Audit]
+      summary: Query audit log
+      parameters:
+        - in: query
+          name: action
+          schema: { type: string }
+        - in: query
+          name: resource_type
+          schema: { type: string }
+        - in: query
+          name: start_time
+          schema: { type: string, format: date-time }
+        - in: query
+          name: end_time
+          schema: { type: string, format: date-time }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Paginated audit entries
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedAuditEntries' }
+
+  /audit-log/export:
+    get:
+      tags: [Audit]
+      summary: Export audit log
+      parameters:
+        - in: query
+          name: format
+          required: true
+          schema:
+            type: string
+            enum: [json, csv]
+      responses:
+        '200':
+          description: Audit export
+          content:
+            application/json: {}
+            text/csv: {}
+
+  /settings:
+    get:
+      tags: [Settings]
+      responses: { '200': { description: Settings } }
+    put:
+      tags: [Settings]
+      responses: { '200': { description: Updated } }
+
+  /dot1x-overview:
+    get:
+      tags: [Health]
+      summary: 802.1X dashboard data
+      responses:
+        '200':
+          description: Counts and trends
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dot1xOverview' }
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Service liveness
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  version: { type: string }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Limit:
+      in: query
+      name: limit
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Offset:
+      in: query
+      name: offset
+      schema: { type: integer, minimum: 0, default: 0 }
+    UuidPathId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Permission denied (RBAC)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Unique-key conflict
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+    # ----- Common -----
+    ErrorResponse:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string }
+        code: { type: string, nullable: true }
+        field: { type: string, nullable: true }
+
+    # ----- Auth -----
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+
+    LoginResponse:
+      type: object
+      required: [access_token, token_type, expires_in, user]
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, example: bearer }
+        expires_in: { type: integer, example: 3600 }
+        user: { $ref: '#/components/schemas/User' }
+
+    User:
+      type: object
+      required: [id, username, role, enabled]
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string }
+        email: { type: string, format: email, nullable: true }
+        role: { type: string, enum: [admin, operator, viewer] }
+        enabled: { type: boolean }
+        last_login: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    UserCreate:
+      type: object
+      required: [username, password, role]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 64 }
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 8 }
+        role: { type: string, enum: [admin, operator, viewer] }
+
+    UserUpdate:
+      type: object
+      properties:
+        email: { type: string, format: email }
+        role: { type: string, enum: [admin, operator, viewer] }
+        enabled: { type: boolean }
+
+    PaginatedUsers:
+      allOf:
+        - $ref: '#/components/schemas/Paginated'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/User' }
+
+    # ----- Devices -----
+    Device:
+      type: object
+      required: [id, mac_address]
+      properties:
+        id: { type: string, format: uuid }
+        mac_address: { type: string, pattern: '^([0-9a-f]{2}:){5}[0-9a-f]{2}$' }
+        ip_address: { type: string, nullable: true }
+        hostname: { type: string, nullable: true }
+        device_type: { type: string, nullable: true }
+        os_family: { type: string, nullable: true }
+        vendor: { type: string, nullable: true }
+        status: { type: string, enum: [authenticated, quarantined, blocked, unknown] }
+        risk_score: { type: integer, minimum: 0, maximum: 100, nullable: true }
+        first_seen: { type: string, format: date-time }
+        last_seen: { type: string, format: date-time }
+
+    DeviceCreate:
+      type: object
+      required: [mac_address]
+      properties:
+        mac_address: { type: string }
+        ip_address: { type: string }
+        hostname: { type: string }
+        device_type: { type: string }
+        vendor: { type: string }
+
+    DeviceUpdate:
+      type: object
+      properties:
+        hostname: { type: string }
+        ip_address: { type: string }
+        device_type: { type: string }
+        os_family: { type: string }
+        vendor: { type: string }
+        risk_score: { type: integer, minimum: 0, maximum: 100 }
+        status: { type: string }
+
+    DeviceProperty:
+      type: object
+      required: [key, value]
+      properties:
+        key: { type: string }
+        value: { type: string }
+        category: { type: string }
+        recorded_at: { type: string, format: date-time }
+
+    DevicePropertyCreate:
+      type: object
+      required: [key, value]
+      properties:
+        key: { type: string }
+        value: { type: string }
+        category: { type: string }
+
+    PaginatedDevices:
+      allOf:
+        - $ref: '#/components/schemas/Paginated'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Device' }
+
+    # ----- Policies -----
+    Policy:
+      type: object
+      required: [id, name, priority, conditions, match_actions]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 200 }
+        description: { type: string, nullable: true }
+        priority: { type: integer, minimum: 1, maximum: 9999 }
+        enabled: { type: boolean, default: true }
+        conditions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyCondition' }
+        match_actions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyAction' }
+        no_match_actions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyAction' }
+
+    PolicyCondition:
+      type: object
+      required: [field, operator]
+      properties:
+        field: { type: string, example: "device.os_family" }
+        operator:
+          type: string
+          enum: [equals, not_equals, in, not_in, contains, starts_with, ends_with, gt, lt, regex, is_null]
+        value:
+          description: "Operator-dependent. String, number, list, or null."
+
+    PolicyAction:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [vlan_assign, acl_apply, quarantine, coa] }
+        params: { type: object, additionalProperties: true }
+
+    PolicyCreate:
+      type: object
+      required: [name, priority, conditions, match_actions]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        priority: { type: integer, minimum: 1, maximum: 9999 }
+        enabled: { type: boolean }
+        conditions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyCondition' }
+        match_actions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyAction' }
+        no_match_actions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyAction' }
+
+    PolicyUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        priority: { type: integer }
+        enabled: { type: boolean }
+        conditions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyCondition' }
+        match_actions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyAction' }
+        no_match_actions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyAction' }
+
+    PolicyTemplate:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        conditions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyCondition' }
+        actions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyAction' }
+
+    DeviceContext:
+      type: object
+      properties:
+        mac_address: { type: string }
+        ip_address: { type: string }
+        hostname: { type: string }
+        device_type: { type: string }
+        os_family: { type: string }
+        vendor: { type: string }
+        vlan: { type: integer }
+        auth_method: { type: string }
+        username: { type: string }
+        properties: { type: object, additionalProperties: { type: string } }
+
+    SimulationResult:
+      type: object
+      properties:
+        policy_id: { type: string, format: uuid }
+        policy_name: { type: string }
+        matched: { type: boolean }
+        condition_results:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              operator: { type: string }
+              expected: {}
+              actual: {}
+              matched: { type: boolean }
+        actions:
+          type: array
+          items: { $ref: '#/components/schemas/PolicyAction' }
+
+    PaginatedPolicies:
+      allOf:
+        - $ref: '#/components/schemas/Paginated'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Policy' }
+
+    # ----- CoA -----
+    CoARequestByMac:
+      type: object
+      required: [mac, action]
+      properties:
+        mac: { type: string }
+        action: { type: string, enum: [disconnect, reauthenticate, vlan_change, apply_acl] }
+        params: { type: object, additionalProperties: true }
+
+    CoARequestByUsername:
+      type: object
+      required: [username, action]
+      properties:
+        username: { type: string }
+        action: { type: string, enum: [disconnect, reauthenticate, vlan_change, apply_acl] }
+        params: { type: object, additionalProperties: true }
+
+    CoARequestBySession:
+      type: object
+      required: [session_id, action]
+      properties:
+        session_id: { type: string }
+        action: { type: string, enum: [disconnect, reauthenticate, vlan_change, apply_acl] }
+        params: { type: object, additionalProperties: true }
+
+    CoABulkRequest:
+      type: object
+      required: [targets]
+      properties:
+        targets:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [type, value, action]
+            properties:
+              type: { type: string, enum: [mac, username, session_id] }
+              value: { type: string }
+              action: { type: string, enum: [disconnect, reauthenticate, vlan_change, apply_acl] }
+              params: { type: object }
+
+    CoAResult:
+      type: object
+      properties:
+        target_type: { type: string }
+        target_value: { type: string }
+        action: { type: string }
+        success: { type: boolean }
+        nas_ip: { type: string }
+        error: { type: string, nullable: true }
+        timestamp: { type: string, format: date-time }
+
+    CoABulkResult:
+      type: object
+      properties:
+        total: { type: integer }
+        succeeded: { type: integer }
+        failed: { type: integer }
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/CoAResult' }
+
+    # ----- LDAP -----
+    LdapServer:
+      type: object
+      required: [id, name, host, port]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        host: { type: string }
+        port: { type: integer, minimum: 1, maximum: 65535 }
+        use_tls: { type: boolean }
+        use_starttls: { type: boolean }
+        bind_dn: { type: string }
+        base_dn: { type: string }
+        user_search_base: { type: string }
+        user_search_filter: { type: string }
+        group_membership_attr: { type: string, default: memberOf }
+        priority: { type: integer }
+        enabled: { type: boolean }
+        last_test_result: { type: object, nullable: true }
+
+    LdapServerCreate:
+      type: object
+      required: [name, host, port, bind_dn, bind_password, base_dn]
+      properties:
+        name: { type: string }
+        host: { type: string }
+        port: { type: integer }
+        use_tls: { type: boolean }
+        use_starttls: { type: boolean }
+        bind_dn: { type: string }
+        bind_password: { type: string, format: password }
+        base_dn: { type: string }
+        user_search_base: { type: string }
+        user_search_filter: { type: string }
+        group_membership_attr: { type: string }
+        priority: { type: integer }
+        enabled: { type: boolean }
+
+    LdapServerUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        host: { type: string }
+        port: { type: integer }
+        use_tls: { type: boolean }
+        use_starttls: { type: boolean }
+        bind_dn: { type: string }
+        bind_password: { type: string, format: password }
+        base_dn: { type: string }
+        user_search_base: { type: string }
+        user_search_filter: { type: string }
+        priority: { type: integer }
+        enabled: { type: boolean }
+
+    # ----- Group VLAN -----
+    GroupVlanMapping:
+      type: object
+      required: [id, group_name, vlan_id, priority]
+      properties:
+        id: { type: string, format: uuid }
+        group_name: { type: string }
+        vlan_id: { type: integer, minimum: 1, maximum: 4094 }
+        priority: { type: integer, minimum: 1, maximum: 9999 }
+        description: { type: string, nullable: true }
+        ldap_server_id: { type: string, format: uuid, nullable: true }
+        enabled: { type: boolean }
+
+    GroupVlanMappingCreate:
+      type: object
+      required: [group_name, vlan_id, priority]
+      properties:
+        group_name: { type: string, maxLength: 255 }
+        vlan_id: { type: integer, minimum: 1, maximum: 4094 }
+        priority: { type: integer, minimum: 1, maximum: 9999 }
+        description: { type: string }
+        ldap_server_id: { type: string, format: uuid }
+        enabled: { type: boolean, default: true }
+
+    # ----- MAB -----
+    MabDevice:
+      type: object
+      required: [id, mac_address]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, nullable: true }
+        mac_address: { type: string }
+        assigned_vlan_id: { type: integer, nullable: true }
+        description: { type: string, nullable: true }
+        expiry_date: { type: string, format: date-time, nullable: true }
+        enabled: { type: boolean }
+
+    MabDeviceCreate:
+      type: object
+      required: [mac_address]
+      properties:
+        name: { type: string }
+        mac_address: { type: string }
+        assigned_vlan_id: { type: integer }
+        description: { type: string }
+        expiry_date: { type: string, format: date-time }
+        enabled: { type: boolean, default: true }
+
+    # ----- VLAN -----
+    Vlan:
+      type: object
+      required: [id, vlan_id, name]
+      properties:
+        id: { type: string, format: uuid }
+        vlan_id: { type: integer, minimum: 1, maximum: 4094 }
+        name: { type: string }
+        purpose: { type: string, enum: [corporate, guest, iot, quarantine, voip] }
+        subnet: { type: string, nullable: true }
+
+    VlanCreate:
+      type: object
+      required: [vlan_id, name]
+      properties:
+        vlan_id: { type: integer, minimum: 1, maximum: 4094 }
+        name: { type: string }
+        purpose: { type: string, enum: [corporate, guest, iot, quarantine, voip] }
+        subnet: { type: string }
+
+    # ----- Certificate -----
+    Certificate:
+      type: object
+      required: [id, common_name, expiry_status]
+      properties:
+        id: { type: string, format: uuid }
+        common_name: { type: string }
+        issuer: { type: string }
+        serial: { type: string }
+        fingerprint_sha256: { type: string }
+        not_before: { type: string, format: date-time }
+        not_after: { type: string, format: date-time }
+        expiry_status: { type: string, enum: [expired, expiring_soon, valid] }
+        is_ca: { type: boolean }
+        cert_type: { type: string, enum: [ca, server, client] }
+
+    # ----- Sessions / Auth Log / Audit -----
+    Session:
+      type: object
+      properties:
+        session_id: { type: string }
+        username: { type: string }
+        calling_station_id: { type: string }
+        nas_ip: { type: string }
+        nas_port: { type: integer }
+        assigned_vlan: { type: integer, nullable: true }
+        start_time: { type: string, format: date-time }
+
+    AuthLogEntry:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        session_id: { type: string }
+        auth_result: { type: string, enum: [success, reject, timeout, error] }
+        auth_method: { type: string }
+        username: { type: string }
+        calling_station_id: { type: string }
+        nas_ip: { type: string }
+        assigned_vlan: { type: integer, nullable: true }
+        failure_reason: { type: string, nullable: true }
+
+    AuditEntry:
+      type: object
+      properties:
+        timestamp: { type: string, format: date-time }
+        user_id: { type: string, format: uuid, nullable: true }
+        action: { type: string }
+        resource_type: { type: string }
+        resource_id: { type: string, nullable: true }
+        ip_address: { type: string }
+        details: { type: object }
+
+    PaginatedSessions:
+      allOf:
+        - $ref: '#/components/schemas/Paginated'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Session' }
+
+    PaginatedAuthLog:
+      allOf:
+        - $ref: '#/components/schemas/Paginated'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/AuthLogEntry' }
+
+    PaginatedAuditEntries:
+      allOf:
+        - $ref: '#/components/schemas/Paginated'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/AuditEntry' }
+
+    Paginated:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items: { type: array }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+
+    Dot1xOverview:
+      type: object
+      properties:
+        active_sessions: { type: integer }
+        success_rate_24h: { type: number, format: float }
+        nas_clients:
+          type: object
+          properties: { total: { type: integer }, enabled: { type: integer } }
+        ldap_servers:
+          type: object
+          properties: { total: { type: integer }, enabled: { type: integer } }
+        radius_realms:
+          type: object
+          properties: { total: { type: integer }, enabled: { type: integer } }
+        certificates:
+          type: object
+          properties:
+            total: { type: integer }
+            valid: { type: integer }
+            expiring_soon: { type: integer }
+            expired: { type: integer }
+        mab_devices:
+          type: object
+          properties: { total: { type: integer }, enabled: { type: integer } }
+        group_vlan_mappings:
+          type: object
+          properties: { total: { type: integer }, enabled: { type: integer } }
