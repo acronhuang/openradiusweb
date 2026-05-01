@@ -236,11 +236,6 @@ server default {
         #
         # radutmp
 
-        #
-        # Preprocess accounting requests
-        #
-        preprocess
-
 {% for ldap_mod in ldap_modules %}
         #
         # LDAP accounting: {{ ldap_mod.name }}
