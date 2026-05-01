@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from datetime import date, datetime, time
-from typing import Any, Optional, Union, get_args, get_origin
+from typing import Any, NamedTuple, Optional, Union, get_args, get_origin
 from uuid import UUID
 
 import pytest
@@ -41,22 +41,25 @@ _CREATE_TABLE_RE = re.compile(
     r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\((.*?)\n\)\s*;",
     re.IGNORECASE | re.DOTALL,
 )
-# `ALTER TABLE foo ADD COLUMN [IF NOT EXISTS] bar TYPE ...;`
+# `ALTER TABLE foo ADD COLUMN [IF NOT EXISTS] bar TYPE [NOT NULL] ...;`
+# Group 4 captures the rest of the line so we can scan it for "NOT NULL".
 _ALTER_ADD_COLUMN_RE = re.compile(
     r"""ALTER\s+TABLE\s+(\w+)\s+
         ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?
         (\w+)\s+
         ([A-Z]+(?:\s*\([^)]*\))?(?:\s*\[\])?)
+        ([^;]*)
     """,
     re.IGNORECASE | re.VERBOSE,
 )
 # Match a column definition line like "  name VARCHAR(255) NOT NULL,"
-# Group 1 = column name; group 2 = pg type (everything until first DEFAULT/
-# NOT NULL/REFERENCES/UNIQUE/CHECK/comma/close-paren).
+# Group 1 = column name; group 2 = pg type; group 3 = the rest of the line
+# (constraints / defaults / etc.) — scanned for "NOT NULL" / "PRIMARY KEY".
 _COLUMN_RE = re.compile(
     r"""^\s*
         ([a-z_][a-z_0-9]*)\s+              # column name
         ([A-Z]+(?:\s*\([^)]*\))?(?:\s*\[\])?)  # pg type, e.g. VARCHAR(50), INTEGER, TEXT[]
+        (.*)$                              # rest: NOT NULL / DEFAULT / REFERENCES / etc.
     """,
     re.IGNORECASE | re.VERBOSE,
 )
@@ -67,14 +70,25 @@ _NON_COLUMN_PREFIX_RE = re.compile(
 )
 
 
-def parse_schema() -> dict[str, dict[str, str]]:
-    """Return {table_name: {column_name: pg_type_uppercase}}.
+def _is_not_null(rest_of_line: str) -> bool:
+    """`NOT NULL` or `PRIMARY KEY` (which implies NOT NULL) in the trailing column spec."""
+    upper = rest_of_line.upper()
+    return "NOT NULL" in upper or "PRIMARY KEY" in upper
+
+
+class ColumnInfo(NamedTuple):
+    pg_type: str          # uppercase, e.g. "VARCHAR(255)" / "TEXT[]"
+    nullable: bool        # True unless the column is NOT NULL or PRIMARY KEY
+
+
+def parse_schema() -> dict[str, dict[str, ColumnInfo]]:
+    """Return {table_name: {column_name: ColumnInfo(pg_type, nullable)}}.
 
     Walks every .sql in migrations/ and extracts CREATE TABLE statements.
     Later migrations override earlier ones for the same table (matches
     actual `apply` order).
     """
-    schema: dict[str, dict[str, str]] = {}
+    schema: dict[str, dict[str, ColumnInfo]] = {}
     # init.sql is the base schema; numbered migrations apply on top.
     # Plain alphabetical sort would put `init.sql` AFTER `003_*.sql` and
     # silently overwrite ALTER-added columns. Order init first explicitly.
@@ -87,14 +101,15 @@ def parse_schema() -> dict[str, dict[str, str]]:
         for table_match in _CREATE_TABLE_RE.finditer(sql):
             table_name = table_match.group(1).lower()
             body = table_match.group(2)
-            cols: dict[str, str] = {}
+            cols: dict[str, ColumnInfo] = {}
             for line in body.split("\n"):
                 if _NON_COLUMN_PREFIX_RE.match(line):
                     continue
                 col_match = _COLUMN_RE.match(line)
                 if col_match:
-                    cols[col_match.group(1).lower()] = (
-                        col_match.group(2).strip().upper()
+                    cols[col_match.group(1).lower()] = ColumnInfo(
+                        pg_type=col_match.group(2).strip().upper(),
+                        nullable=not _is_not_null(col_match.group(3)),
                     )
             if cols:
                 schema[table_name] = cols
@@ -103,8 +118,10 @@ def parse_schema() -> dict[str, dict[str, str]]:
         for alter_match in _ALTER_ADD_COLUMN_RE.finditer(sql):
             table_name = alter_match.group(1).lower()
             col_name = alter_match.group(2).lower()
-            col_type = alter_match.group(3).strip().upper()
-            schema.setdefault(table_name, {})[col_name] = col_type
+            schema.setdefault(table_name, {})[col_name] = ColumnInfo(
+                pg_type=alter_match.group(3).strip().upper(),
+                nullable=not _is_not_null(alter_match.group(4)),
+            )
     return schema
 
 
@@ -180,7 +197,13 @@ def _python_type_compatible_with_pg(python_type: type, pg_type: str) -> bool:
 # those exceptions in `field_to_column`.
 #
 # `extra_skip` = field names known not to land in the table (e.g. computed
-# server-side, used only for validation). Skip the contract check.
+# server-side, used only for validation). Skip every check for them.
+#
+# `nullable_skip` = fields where the model is intentionally Optional but
+# the DB column is NOT NULL. Use this only for fields that are filled in
+# by a route/service layer before INSERT (so user-facing Pydantic doesn't
+# need to require them). For the generic case where the API just accepts
+# null and 500s downstream, FIX THE MODEL — that's the point of the check.
 
 from orw_common.models.ldap_server import LDAPServerCreate, LDAPServerUpdate
 from orw_common.models.nas_client import NASClientCreate, NASClientUpdate
@@ -193,47 +216,67 @@ from orw_common.models.group_vlan_mapping import (
 )
 
 
-CONTRACTS: list[tuple[type[BaseModel], str, dict[str, str], set[str]]] = [
-    # (model, table, field_to_column rename map, fields to skip entirely)
+# (model, table, field_to_column rename map, extra_skip, nullable_skip)
+Contract = tuple[type[BaseModel], str, dict[str, str], set[str], set[str]]
+
+# TODO: drop the bind_dn / bind_password entries from nullable_skip once
+# PR #46 (fix(ldap): require bind_dn + bind_password on Create) merges.
+# That PR makes both fields required on the Create model, which closes
+# the nullability mismatch and makes the skip unnecessary.
+_LDAP_PR46_PENDING = {"bind_dn", "bind_password"}
+
+
+CONTRACTS: list[Contract] = [
     (
         LDAPServerCreate, "ldap_servers",
         {"bind_password": "bind_password_encrypted"},
         set(),
+        _LDAP_PR46_PENDING,
     ),
     (
         LDAPServerUpdate, "ldap_servers",
         {"bind_password": "bind_password_encrypted"},
         set(),
+        # Update is partial by design — Optional fields shouldn't get
+        # nullability-checked. Mark them all as expected exceptions.
+        {"bind_dn", "bind_password", "name", "host", "base_dn"},
     ),
     (
         NASClientCreate, "radius_nas_clients",
         {"shared_secret": "secret_encrypted"},
+        set(),
         set(),
     ),
     (
         NASClientUpdate, "radius_nas_clients",
         {"shared_secret": "secret_encrypted"},
         set(),
+        # Same partial-update logic as LDAPServerUpdate.
+        {"name", "ip_address", "shared_secret"},
     ),
     (
         RealmCreate, "radius_realms",
         {"proxy_secret": "proxy_secret_encrypted"},
+        set(),
         set(),
     ),
     (
         RealmUpdate, "radius_realms",
         {"proxy_secret": "proxy_secret_encrypted"},
         set(),
+        {"name", "realm_type"},  # required-on-create columns; Update may omit
     ),
     (
         MabDeviceCreate, "mab_devices",
         {},
+        set(),
         set(),
     ),
     (
         MabDeviceUpdate, "mab_devices",
         {},
         set(),
+        {"mac_address"},  # required-on-create column
     ),
     (
         PolicyCreate, "policies",
@@ -242,31 +285,40 @@ CONTRACTS: list[tuple[type[BaseModel], str, dict[str, str], set[str]]] = [
         # list[Pydantic model] but stored as JSONB — list-of-dicts is the
         # actual on-the-wire shape, which JSONB accepts.
         set(),
+        set(),
     ),
     (
         PolicyUpdate, "policies",
         {},
         set(),
+        # All NOT NULL on Create, partial-update Optional here.
+        {"name", "conditions", "match_actions"},
     ),
     (
         VlanCreate, "vlans",
         {},
+        set(),
         set(),
     ),
     (
         VlanUpdate, "vlans",
         {},
         set(),
+        {"vlan_id", "name"},
     ),
     (
         GroupVlanMappingCreate, "group_vlan_mappings",
         {},
+        set(),
         set(),
     ),
     (
         GroupVlanMappingUpdate, "group_vlan_mappings",
         {},
         set(),
+        # group_vlan_mappings is the strictest table — every column is
+        # NOT NULL even where defaults are present. Partial Update is fine.
+        {"group_name", "vlan_id", "priority", "enabled"},
     ),
     # Certificate models pass through `crypto.parse_cert_metadata`
     # before INSERT, so the model fields don't directly map to columns.
@@ -276,34 +328,51 @@ CONTRACTS: list[tuple[type[BaseModel], str, dict[str, str], set[str]]] = [
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _is_optional(annotation: Any) -> bool:
+    """True if the Pydantic annotation accepts None (Optional[X] / X | None)."""
+    origin = get_origin(annotation)
+    return origin is Union and type(None) in get_args(annotation)
+
+
+# ---------------------------------------------------------------------------
 # The actual test
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")
-def schema() -> dict[str, dict[str, str]]:
+def schema() -> dict[str, dict[str, ColumnInfo]]:
     s = parse_schema()
     assert s, "schema parser returned empty — migrations/ not found?"
     return s
 
 
 @pytest.mark.parametrize(
-    "model,table,field_to_column,extra_skip",
+    "model,table,field_to_column,extra_skip,nullable_skip",
     CONTRACTS,
     ids=lambda item: getattr(item, "__name__", str(item))[:40],
 )
 def test_model_fields_align_with_table_columns(
-    schema, model, table, field_to_column, extra_skip,
+    schema, model, table, field_to_column, extra_skip, nullable_skip,
 ):
-    """Every Pydantic field maps to an existing column with a compatible type."""
+    """Every Pydantic field maps to an existing column with a compatible type
+    AND with consistent nullability.
+
+    Two failure modes covered:
+      1. **Type / name mismatch** — model field doesn't exist in the table or
+         types don't line up (PR #31 / #33 / #40 class).
+      2. **Nullability mismatch** — model field is Optional[X] but the DB
+         column is NOT NULL. Pydantic accepts None, asyncpg rejects with
+         "null value violates not-null constraint" (PR #46 class).
+    """
     assert table in schema, (
         f"Table {table!r} not found in migrations. "
         f"Known tables: {sorted(schema)[:10]}..."
     )
     columns = schema[table]
 
-    # Pydantic v2: model.model_fields gives {name: FieldInfo}
     model_fields = model.model_fields  # type: ignore[attr-defined]
-
     failures: list[str] = []
 
     for field_name, field_info in model_fields.items():
@@ -316,19 +385,32 @@ def test_model_fields_align_with_table_columns(
                 f"NOT in table {table!r}"
             )
             continue
-        pg_type = columns[column_name]
+        col = columns[column_name]
         py_type = field_info.annotation
-        if not _python_type_compatible_with_pg(py_type, pg_type):
+        # 1. Type compatibility
+        if not _python_type_compatible_with_pg(py_type, col.pg_type):
             failures.append(
                 f"  field {field_name!r} ({py_type}) "
-                f"NOT compatible with column {column_name!r} ({pg_type})"
+                f"NOT compatible with column {column_name!r} ({col.pg_type})"
+            )
+        # 2. Nullability — only fails when model accepts None but DB doesn't.
+        if (
+            field_name not in nullable_skip
+            and _is_optional(py_type)
+            and not col.nullable
+        ):
+            failures.append(
+                f"  field {field_name!r} is Optional[...] but column "
+                f"{column_name!r} is NOT NULL — API will accept null and "
+                f"asyncpg will 500 with 'null value violates not-null'"
             )
 
     if failures:
         msg = (
             f"\n{model.__name__} <-> {table} contract violations:\n"
             + "\n".join(failures)
-            + "\n\nFix either the model field type/name OR the schema/"
-            "column_map. See PR #31, #33, #40 for examples of this bug class."
+            + "\n\nFix either the model field type/nullability OR the schema/"
+            "column_map. See PR #31, #33, #40, #46 for examples of this bug "
+            "class."
         )
         pytest.fail(msg)
