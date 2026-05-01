@@ -16,8 +16,6 @@ case) is much cheaper than catching it in a redeployment loop.
 """
 from __future__ import annotations
 
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # Default capability flags — minimum config the manager produces when the
