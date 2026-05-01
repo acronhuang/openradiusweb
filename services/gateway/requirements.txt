@@ -15,3 +15,9 @@ nats-py>=2.6
 structlog>=23.0
 # Pydantic v2 split BaseSettings into its own package — orw_common.config uses it.
 pydantic-settings>=2.0
+# LDAP client — used by features/ldap_servers/routes.py for the
+# `POST /ldap-servers/{id}/test` endpoint (live connect + bind + sample
+# search). The route guards `import ldap3` with an ImportError fallback,
+# but the fallback was the only path running in prod until this dep was
+# added — every Test Connection click failed with "ldap3 not installed".
+ldap3>=2.9
