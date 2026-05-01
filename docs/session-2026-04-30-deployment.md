@@ -2,20 +2,24 @@
 
 ## Fresh Deployment to 192.168.0.250 + Real-World Bug Triage
 
-**對象：** 把 [migration session log](session-2026-04-29-migration-completion.md) 結束後的 main HEAD `5bb3b9b`（19/19 features migrated）部署到一台全新 Ubuntu 22.04 機器。途中暴露了 6 個獨立 bug，每個都修出獨立 PR。session 結束時 freeradius 還在 EAP cert restart loop（PR #35 待寫）。
+**對象：** 把 [migration session log](session-2026-04-29-migration-completion.md) 結束後的 main HEAD `5bb3b9b`（19/19 features migrated）部署到一台全新 Ubuntu 22.04 機器。途中暴露了 **10 個獨立 bug**（從 frontend 欄位名 → SQL syntax → DB column 名 → freeradius config 結構 → Docker base image 限制），每個都修出獨立 PR（#30-#39，跳過 #34 被吸收進 #36）。**最終狀態：12/12 containers Up，FreeRADIUS 穩定運行**。
 
 **範圍：**
 - Project status sanity check（PR #28 收尾）
 - Smoke flow 設計（pre-deployment confidence）
 - Fresh install on 192.168.0.250（Docker, env, build, up, smoke）
-- 4 個 backend bug（frontend 欄位名 / freeradius column 名 / asyncpg `:foo::type` / system_settings column 名）→ PR #30, #31, #32, #33
-- Deployment guide v2.1（PR #29，更新成 real-world fixes）
-- 1 個架構 bug（freeradius entrypoint cp vs ln -sf）→ PR #34
-- 1 個 EAP cert load failure（restart loop）→ PR #35 (仍在 progress)
+- 4 個 data-plane bug（frontend 欄位名 / freeradius column 名 / asyncpg `:foo::type` / system_settings column 名）→ PR #30-#33
+- Deployment guide v2.1（PR #29，real-world fixes）
+- freeradius 6 hour restart loop debugging：
+  - PR #34（cp → ln -sf，吸收進 #36）
+  - PR #36（comprehensive fix：用 templates、conditional config gen、修 entrypoint chmod glob）
+  - PR #37（rlm_python3 runtime detect — image 沒 bundle 也能跑）
+  - PR #38（template: 移 preprocess 從 accounting）
+  - PR #39（template: 移 remove_reply_message_authenticator — 3.2.3 不 bundle）
 
-**最終 main HEAD：** `dccd85f`（PR #33 之後）。PR #34 開出但未 merge；PR #35 待寫。
+**最終 main HEAD：** `dba0a44`（PR #39 之後）。
 
-**部署狀態：** gateway / frontend / postgres / redis / nats / 其他 service 都 Up；**freeradius 因為 EAP module load 失敗在 restart loop**，使用者 unblock 中。
+**部署狀態：** **12/12 containers Up + healthy**；FreeRADIUS daemon 穩定運行；UDP 1812-1813 對外綁定；本機 radtest 確認可 process RADIUS request。Fortigate 端 Test Connectivity 應該可通（待最終確認）。
 
 ---
 
@@ -300,9 +304,146 @@ docker compose up -d freeradius
 ```
 **結果**：sed 重複 match 同一行兩次（regex `name=$(basename "$conf")` 在 sites-enabled loop 的 `name=$(basename "$site")` 也命中嗎？看貼回的內容是同一行兩次 if-block — 不確定原因），但更重要：**dummy cert 已經存在**，所以條件 `[ ! -s /etc/freeradius/certs/server.key ]` 為 false，eap 仍被 enable，仍 restart loop。
 
-### Session 結束狀態
+### Round 10 中段狀態
 - freeradius 仍 restart loop
-- 待寫 PR #35：在 [freeradius_config_manager.py](../services/auth/freeradius_config_manager.py) 的 EAP config generator 加判斷「沒 active server cert 就 return None / 不寫檔」，從根本不產 eap module config
+- 走過 6 種繞過嘗試（dummy cert、改 entrypoint sed、刪 eap module、刪 inner-tunnel、`SKIP_MODS` 環境變數）都失敗
+- **核心問題**：watcher reconciliation 會把 entrypoint 的 sed band-aid 寫回原樣 → 必須改 source code
+
+---
+
+## Round 11 — 全面 audit + 開出 PR #36（comprehensive freeradius config gen 修正）
+
+### Prompt
+> 已經修很久了請檢查所有程式
+>
+> 依照軟體開發 SDD TDD BDD DDD 等等...進行確認
+
+### 探索（DDD/SDD-lens audit）
+派 Explore subagent 做整個 freeradius 整合鏈的完整 audit，~500 lines 報告，找到 3 個 root cause architectural gaps：
+
+| Gap | 內容 |
+|---|---|
+| **1. 既有 jinja2 templates 沒被用到** | `site_default.j2` / `site_inner_tunnel.j2` / `python.j2` 寫得很完整但 manager 用 165 行 string concat 重新發明輪子 |
+| **2. 無條件 module references** | site default **無條件** emit `eap` / `orw` references；沒 cert 時 eap 模組不被生成，但 site 仍引用 → radiusd parse 死 → restart loop |
+| **3. rlm_python vs rlm_python3** | template 用 `python orw {`（Python 2 directive）+ Dockerfile 沒裝 `freeradius-python3`；rlm_orw.py 是 Python 3 → instantiate fail |
+
+### 變更（PR [#36](https://github.com/acronhuang/openradiusweb/pull/36)）
+- **`freeradius_config_manager.py`**：把 `generate_site_default()` / `generate_site_inner_tunnel()` / `generate_python_config()` 從 string concat 改為 template render；傳 `has_eap` / `has_python` / `ldap_modules` / `realms_enabled` flags；inner-tunnel 在沒 EAP 時整個跳過。淨減 -315 行。
+- **`templates/site_default.j2` + `site_inner_tunnel.j2`**：所有 `eap` / `orw` references 包進 `{% if has_eap %}` / `{% if has_python %}`。
+- **`templates/python.j2`**：`python orw {` → `python3 orw {`（rlm_python3 directive）+ python_path 加雙引號。
+- **`Dockerfile.freeradius`**：加 `freeradius-python3` 套件 + build-time sanity check `radiusd -v | grep rlm_python3`。
+- **`freeradius_entrypoint.sh`**：cp → ln-sf（吸收 PR #34）+ 修 chmod glob bug（之前 `chmod 600 /certs/server/*.key` 永遠 match 不到，因為實際路徑是 `/certs/server.key` 沒 subdir）+ 移除無用 mkdir。
+
+merged → main `c504890`
+
+---
+
+## Round 12 — Dockerfile sanity check 太嚴格 → PR #37
+
+### 觀察
+PR #36 merged + redeploy → freeradius image build 失敗：
+```
+ERROR: rlm_python3 not available in this freeradius build
+```
+PR #36 加的 build-time check 抓出真實問題：**`freeradius/freeradius-server:3.2.3` 不 bundle rlm_python3**，且 Debian apt repo 也沒 `freeradius-python3` 套件（要從 source build freeradius 才能加）。
+
+### 變更（PR [#37](https://github.com/acronhuang/openradiusweb/pull/37)）
+- **`Dockerfile.freeradius`**：移除 build-time sanity check（不該擋 build），改 comment 說明 rlm_python3 沒裝、靠 runtime detect。
+- **`freeradius_config_manager.py`**：加 `_rlm_python3_available()` helper — 跑 `radiusd -v` grep `rlm_python3`，找不到就 return False；`generate_all_configs` 用這個 flag 決定 `has_python`，沒 rlm_python3 就跳過 python config。
+- **未來**：要啟用 orw module 時改成有 rlm_python3 的 freeradius image，runtime detect 自動切回 has_python=True，**不用改 code**。
+
+merged → main `6b4c875`
+
+---
+
+## Round 13 — Template 殘留 bug：preprocess in accounting → PR #38
+
+### 觀察
+PR #37 merged + redeploy → freeradius 仍 restart loop。`freeradius -CX` debug：
+```
+/etc/freeradius/sites-enabled/default[176]: "preprocess" modules aren't allowed in 'accounting' sections
+/etc/freeradius/sites-enabled/default[152]: Errors parsing accounting section.
+```
+
+### 變更（PR [#38](https://github.com/acronhuang/openradiusweb/pull/38)）
+`templates/site_default.j2` accounting section 移除 `preprocess` module call（5 行刪除）。`preprocess` 只暴露 authorize / pre-proxy methods，不能用在 accounting。
+
+merged → main `c7e3aac`
+
+---
+
+## Round 14 — 又一個 template bug：remove_reply_message_authenticator → PR #39
+
+### 觀察
+PR #38 merged + redeploy → freeradius 仍 restart loop。`freeradius -CX`：
+```
+/etc/freeradius/sites-enabled/default[123]: Failed to find "remove_reply_message_authenticator" as a module or policy.
+/etc/freeradius/sites-enabled/default[111]: Errors parsing post-auth section.
+```
+
+### 變更（PR [#39](https://github.com/acronhuang/openradiusweb/pull/39)）
+`templates/site_default.j2` post-auth section 移除 `remove_reply_message_authenticator` reference。這是 FreeRADIUS 3.2.5+ 才 bundle 的 unlang policy，3.2.3 沒有。是純 hardening 用途，移掉不影響協定正確性。
+
+merged → main `dba0a44`
+
+### 順便 audit
+grep 所有 standalone module refs：剩下的 (`eap` / `mschap` / `pap` / `preprocess` / `suffix` / `expiration` / `logintime` / `filter_username` / `ntdomain` / `detail`) 都是 freeradius 標準 bundle，不會再有 missing-module。
+
+---
+
+## Round 15 — freeradius 終於穩定 + 收尾
+
+### 操作
+PR #39 merged + redeploy（兩個 image 都重 build：watcher 跟 freeradius 都有 `freeradius_config_manager.py` 跟 templates 嵌進去，**只重 build 其中一個會被另一個用舊 code 跑時覆蓋**）：
+
+```bash
+docker compose ... build --no-cache freeradius freeradius_config_watcher
+sudo rm -f /var/lib/docker/volumes/openradiusweb_freeradius_config/_data/sites-{available,enabled}/*
+docker compose ... up -d freeradius_config_watcher
+sleep 10
+docker compose ... up -d freeradius
+sleep 30
+```
+
+### 驗證
+```
+orw-freeradius   Up About a minute   0.0.0.0:1812-1813->1812-1813/udp
+orw-freeradius-config-watcher   Up 29 minutes
+
+$ docker exec orw-freeradius radtest -x admin OpenNAC2026 127.0.0.1:1812 0 testing123
+Sent Access-Request Id 47 from 0.0.0.0:e256 to 127.0.0.1:1812 length 75
+Received Access-Reject Id 47 from 127.0.0.1:714 to 127.0.0.1:57942 length 20
+(0) -: Expected Access-Accept got Access-Reject
+```
+
+✅ freeradius 穩定 Up + UDP 1812-1813 對外綁定 + 真的能 process RADIUS request。Access-Reject 是預期（沒 orw module 接 DB 做 user lookup），但 server alive 且回應。
+
+### freeradius -X 完整啟動 log（最後幾行）
+```
+Listening on auth address 127.0.0.1 port 18120 bound to server inner-tunnel
+Listening on auth address * port 1812 bound to server default
+Listening on acct address * port 1813 bound to server default
+Ready to process requests
+```
+
+---
+
+## 已 merge PR 對照表 v2（含 Round 11-15）
+
+| PR | Commit | 一句話 |
+|---|---|---|
+| [#28](https://github.com/acronhuang/openradiusweb/pull/28) | `a927120` | 2026-04-29 session log |
+| [#29](https://github.com/acronhuang/openradiusweb/pull/29) | `d784107` | deployment-guide.md v2.1 |
+| [#30](https://github.com/acronhuang/openradiusweb/pull/30) | `3d78673` | frontend NAS Client form 送對 `shared_secret` |
+| [#31](https://github.com/acronhuang/openradiusweb/pull/31) | `2630b85` | freeradius_config_manager 讀對 `secret_encrypted` 欄位 |
+| [#32](https://github.com/acronhuang/openradiusweb/pull/32) | `ddb6e88` + `2db75c7` | gateway-wide `:foo::type` SQL → `CAST(:foo AS type)` |
+| [#33](https://github.com/acronhuang/openradiusweb/pull/33) | `dccd85f` | freeradius_config_manager 讀對 `setting_key/setting_value` |
+| **#34** | (吸收進 #36) | freeradius entrypoint cp → ln -sf |
+| [#35](https://github.com/acronhuang/openradiusweb/pull/35) | (本檔) | 2026-04-30 session log |
+| [#36](https://github.com/acronhuang/openradiusweb/pull/36) | `c504890` | conditional config generation + 真的用 templates + 修 entrypoint chmod glob |
+| [#37](https://github.com/acronhuang/openradiusweb/pull/37) | `6b4c875` | rlm_python3 runtime detect（image 沒 bundle 也能跑）|
+| [#38](https://github.com/acronhuang/openradiusweb/pull/38) | `c7e3aac` | template: 移除 accounting section 裡的 preprocess |
+| [#39](https://github.com/acronhuang/openradiusweb/pull/39) | `dba0a44` | template: 移除 remove_reply_message_authenticator（3.2.3 沒 bundle）|
 
 ---
 
@@ -352,46 +493,57 @@ docker compose up -d freeradius
 | 40 | R10 | A（產 dummy cert）|
 | 41 | R10 | uid 101 / chown / chmod 644 / 仍 restart |
 | 42 | R10 | sed entrypoint hack / 仍 restart |
-| 43 | 本檔 | 將所有步驟及prompt都記錄下來 |
+| 43 | R10 末 | 將所有步驟及prompt都記錄下來 |
+| 44 | R11 | 已經修很久了請檢查所有程式 / 依照軟體開發 SDD TDD BDD DDD 等等...進行確認 |
+| 45 | R12 | 問題一樣（PR #36 build sanity check 把 build fail 掉）|
+| 46 | R13 | 問題一樣（PR #37 後 preprocess in accounting 卡關）|
+| 47 | R14 | 問題一樣（PR #38 後 remove_reply_message_authenticator 卡關）|
+| 48 | R15 | 還是一樣 Can't contact RADIUS server（freeradius 終於 Up，但 user 短暫 container restart 期間沒辦法 radtest）|
+| 49 | R15 | 寫這份 session log 補完 |
 
 ---
 
-## 已 merge PR 對照表（main commit hash → 解的問題）
-
-| PR | Commit | 一句話 |
-|---|---|---|
-| [#28](https://github.com/acronhuang/openradiusweb/pull/28) | `a927120` | 2026-04-29 session log |
-| [#29](https://github.com/acronhuang/openradiusweb/pull/29) | `d784107` | deployment-guide.md v2.1（real-world fixes）|
-| [#30](https://github.com/acronhuang/openradiusweb/pull/30) | `3d78673` | frontend NAS Client form 送對 `shared_secret` 欄位名 + `extractErrorMessage` 接 422 array |
-| [#31](https://github.com/acronhuang/openradiusweb/pull/31) | `2630b85` | freeradius_config_manager 讀對 `secret_encrypted` 欄位 + 移除 dead `ip_prefix` lookup |
-| [#32](https://github.com/acronhuang/openradiusweb/pull/32) | `ddb6e88` + `2db75c7` | gateway 全部 `:foo::type` SQL 改 `CAST(:foo AS type)` + regression test |
-| [#33](https://github.com/acronhuang/openradiusweb/pull/33) | `dccd85f` | freeradius_config_manager 讀對 `setting_key/setting_value` |
-
-## 開著的 PR（待 merge / 待寫）
-
-| PR | 狀態 | 內容 |
-|---|---|---|
-| [#34](https://github.com/acronhuang/openradiusweb/pull/34) | OPEN | freeradius entrypoint cp → ln -sf（讓 watcher 後續更新即時可見） |
-| **#35** | **未開** | 在 `freeradius_config_manager` 的 EAP generator 加 guard：沒 active server cert 就不產 `mods-available/eap` 檔 → freeradius 不會嘗試載 EAP → 不會 restart loop |
+## 開著的 PR
+無（PR #1 是 whitesource bot 不算）。所有為這次部署開的 PR 都已 merge。
 
 ---
 
-## 部署最終狀態
+## 部署最終狀態 ✅
 
 - **OS**: Ubuntu 22.04 jammy on 192.168.0.250 (eno1)
 - **Docker**: 27.x + Compose v2 + Buildx
-- **Repo**: `/opt/openradiusweb` clone from public `acronhuang/openradiusweb`，main HEAD `dccd85f`
-- **Containers**: 11/12 Up（postgres / redis / nats healthy；gateway / frontend / device_inventory / discovery / policy_engine / switch_mgmt / coa_service / freeradius_config_watcher Up；**freeradius restart loop**）
-- **DB**: schema OK，admin password reset 成功（OpenNAC2026），1 個 NAS client row（Fortigate-90D / 192.168.0.99 / secret = MDS2026）
-- **Web UI**: http://192.168.0.250:8888 可登入，CRUD 流程基本可用
-- **RADIUS auth**: 不可用（freeradius daemon 起不來）
+- **Repo**: `/opt/openradiusweb` clone from public `acronhuang/openradiusweb`，main HEAD **`dba0a44`**
+- **Containers**: **12/12 Up**（postgres / redis / nats healthy；gateway / frontend / device_inventory / discovery / policy_engine / switch_mgmt / coa_service / freeradius_config_watcher / **freeradius** 全部 Up）
+- **DB**: schema OK，admin password reset 成功（OpenNAC2026），1 個 NAS client row（Fortigate-90D / 192.168.0.99 / secret = MDS2026），1 CA cert + 1 Server cert 都 Active
+- **Web UI**: http://192.168.0.250:8888 可登入、CRUD 流程通
+- **RADIUS server**: ✅ **alive**，UDP 1812-1813 對外綁定，本機 radtest 可收到 Access-Reject 回應
+- **RADIUS auth**: ⚠️ **半成品** — server 通了但 orw module 沒載（沒 rlm_python3）→ 沒 DB user lookup → 任何用戶都會被 reject。Fortigate Test Connectivity 應該可通（看到 RADIUS server 有回應）但實際 admin 認證會 fail
 
 ---
 
-## 給未來的人的「如果重來」清單
+## 給未來的人的「如果重來」清單 v2
 
-1. **deployment-guide.md v2.1** 已收進 5 個踩過的坑（Docker repo、PAT、env 密碼產生、bcrypt reset、smoke endpoint）
-2. **PR #35** 寫完後，fresh deploy 不會卡在 EAP cert restart loop
-3. **certs feature 的寫入路徑 vs freeradius certs volume** 還沒驗證 — 之後要做 EAP 認證時要確認 UI Generate Server cert 後檔案有沒有真的到 `/etc/freeradius/certs/`
-4. **bcrypt seed-hash mismatch** 只發生第一次 deploy；fix 寫進 deployment-guide §9.5。長期解法可能是改 `migrations/seed.sql` 不寫死 hash、改 entrypoint 第一次啟動時動態產
-5. PAT-leak-via-chat 提醒：以後操作流程裡不要要求使用者貼 token，改成「在 server 端 inline 進 clone URL，立刻 `git remote set-url` 清掉」
+### 已收進文件的（fresh deploy 不會再踩）
+1. **`deployment-guide.md` v2.1**（PR #29）已收進 5 個坑：Docker apt repo 設定、GitHub PAT auth、env 密碼產生（避免 base64 含 `|` 破 sed）、bcrypt seed-hash reset 流程、smoke test endpoint
+2. **`scripts/check_no_new_routes.py`**（PR #26 後）禁止新檔加進 `services/gateway/routes/`
+3. **`tests/unit/test_no_inline_inet_cast.py`**（PR #32）regression test 禁止 `:foo::type` SQL 重新出現
+
+### 已修在 code 的（從根本不會再發生）
+4. **PR #36** 把 `freeradius_config_manager` 從 string concat 改為真的用 templates，加 `has_eap` / `has_python` / `ldap_modules` flags — 沒 cert / 沒 rlm_python3 都自動跳過 module + site refs
+5. **PR #37** runtime detect rlm_python3 — 之後換成有 bundle 的 freeradius image，自動切回 has_python=True 不用改 code
+6. **PR #38 / #39** 移除 freeradius 3.2.5+ 才 bundle 的 unlang policy refs（`preprocess` in accounting、`remove_reply_message_authenticator`）
+
+### 還沒解 / 留給後續
+7. **freeradius image 沒 bundle rlm_python3** — 換 `freeradius/freeradius-server` 之外的 image（含 freeradius-python3 套件的）OR 自己 from-source build。當前只能跑 PAP/MAB/EAP-TLS/EAP-PEAP（cert-based），不能跑 DB-backed user lookup
+8. **bcrypt seed-hash mismatch** — 每次 fresh deploy 都要手動 reset admin password。長期解法：
+   - (a) 修 `migrations/seed.sql` 不寫死 hash，改 entrypoint 第一次啟動時動態產
+   - (b) 把 reset 步驟整合進 `init.sql`
+9. **certs feature 的寫入路徑契約** — 確認 UI Generate Server cert → DB → `freeradius_config_manager._write_cert_files()` → `/etc/freeradius/certs/server.{key,pem}` 整條鏈路在 PR #36 後是 OK 的（這次 deploy 證實），但要做 BDD 測試覆蓋
+10. **stale config files in shared volume** — 當 manager 不再產某個 config（例如沒 rlm_python3 時不產 python config），上次的舊檔還在 volume 裡，entrypoint loop 仍會 symlink → freeradius 載入 → fail。Workaround 是手動刪。**PR #38 應該補：每次 generate 前 cleanup 不在新一輪輸出裡的 `mods-available/*` / `sites-available/*` 檔案**。
+
+### 流程性 lesson
+11. **PAT-leak-via-chat** 提醒：以後操作流程不要要求使用者貼 token；改成「server 端 inline 進 clone URL，立刻 `git remote set-url` 清掉」
+12. **template-vs-runtime-environment 落差** — `freeradius/freeradius-server:3.2.3` 不含 rlm_python3、`freeradius-python3` apt 套件不在它的 repo、`remove_reply_message_authenticator` policy 也是 3.2.5+ 才有。Templates 不能假設這些一定在；用 runtime detect 或 conditional generation 才是 robust 做法
+13. **band-aid sed 改 entrypoint** 是 dead-end — 因為 watcher 的 reconciliation 會把 manager 寫的 config 重新覆蓋，繞過 entrypoint sed。要修就修 source code（manager 或 template），不要修 entrypoint
+14. **多個 service share code via 不同 image** — `freeradius_config_manager.py` 同時 bundle 進 `freeradius` 跟 `freeradius_config_watcher` 兩個 image。任何 manager 的修改要**同時 rebuild 兩個 image**，不然會發生「watcher 寫新 config，freeradius 內建 entrypoint 跑舊 config_manager 又把它覆蓋」的詭異現象
+15. **完整 audit > 單點 fix** — 當踩到第 6 個 bug 時就應該停下來做 DDD/SDD lens 完整 audit（用 Explore subagent），找到所有 architectural gaps 一次修完，不要繼續 reactive band-aid。Round 11 開始這樣做後，剩下的 fix（PR #36-#39）就只是逐步 converge，每個都是真實的根本問題
