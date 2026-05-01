@@ -222,19 +222,18 @@ def _python_type_compatible_with_pg(python_type: type, pg_type: str) -> bool:
 # (model, table, field_to_column rename map, extra_skip, nullable_skip)
 Contract = tuple[type[BaseModel], str, dict[str, str], set[str], set[str]]
 
-# TODO: drop the bind_dn / bind_password entries from nullable_skip once
-# PR #46 (fix(ldap): require bind_dn + bind_password on Create) merges.
-# That PR makes both fields required on the Create model, which closes
-# the nullability mismatch and makes the skip unnecessary.
-_LDAP_PR46_PENDING = {"bind_dn", "bind_password"}
-
 
 CONTRACTS: list[Contract] = [
     (
         LDAPServerCreate, "ldap_servers",
         {"bind_password": "bind_password_encrypted"},
         set(),
-        _LDAP_PR46_PENDING,
+        # bind_dn / bind_password were briefly listed here while PR #46
+        # was in flight (model said Optional, schema NOT NULL). PR #46
+        # made the fields required, so the test now load-bears them
+        # against regression — do NOT add them back without first
+        # changing the model.
+        set(),
     ),
     (
         LDAPServerUpdate, "ldap_servers",
