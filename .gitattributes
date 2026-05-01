@@ -1,0 +1,11 @@
+# Force LF on shell scripts and Dockerfiles regardless of OS checkout.
+#
+# Without this, Windows checkouts get CRLF line endings via core.autocrlf,
+# and a `docker build` from that working tree COPYs in scripts whose
+# `#!/bin/bash\r` shebang Linux can't resolve — entrypoint fails with
+# "no such file or directory" at container start. Painful to debug.
+
+*.sh        text eol=lf
+Dockerfile* text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
