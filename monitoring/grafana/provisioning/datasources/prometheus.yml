@@ -1,0 +1,15 @@
+# Grafana auto-provisioned datasource.
+#
+# Read by Grafana on startup from /etc/grafana/provisioning/datasources/.
+# After this lands, the Prometheus datasource is wired up automatically
+# the first time the grafana container starts — no manual UI step.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
