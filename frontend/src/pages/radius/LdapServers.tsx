@@ -139,7 +139,7 @@ export default function LdapServers() {
           `Results: ${r.search_result_count}, Type: ${r.server_type || 'unknown'}`
         );
       } else {
-        message.error(`Connection failed: ${r.error || 'Unknown error'}`);
+        message.error(`Connection failed: ${r.error_message || 'Unknown error'}`);
       }
       loadServers();
     } catch (err) {

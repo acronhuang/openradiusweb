@@ -11,7 +11,10 @@ class RealmCreate(BaseModel):
     realm_type: str = Field(..., pattern=r"^(local|proxy|reject)$")
     strip_username: bool = True
     proxy_host: Optional[str] = None
-    proxy_port: int = 1812
+    # Local/reject realms send proxy_port=null since the field doesn't apply.
+    # Pydantic v2 won't coerce None -> int, so this must be Optional even
+    # though INTEGER DEFAULT 1812 in the schema is non-null-friendly.
+    proxy_port: Optional[int] = Field(1812, ge=1, le=65535)
     proxy_secret: Optional[str] = None
     proxy_nostrip: bool = False
     proxy_retry_count: int = Field(3, ge=0, le=10)
