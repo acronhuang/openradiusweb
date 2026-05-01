@@ -3,16 +3,17 @@ FROM freeradius/freeradius-server:3.2.3
 
 RUN apt-get update && apt-get install -y \
     python3 python3-pip libpython3-dev \
-    freeradius-python3 \
     && pip3 install --no-cache-dir \
        psycopg2-binary nats-py jinja2 cryptography ldap3 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Sanity check at build time: rlm_python3 must be available.
-# python.j2 emits `python3 orw { ... }` which requires this module.
-# Without it, radiusd will refuse to start with "Failed to find python3 module".
-RUN radiusd -v 2>&1 | grep -q "rlm_python3" || \
-    (echo "ERROR: rlm_python3 not available in this freeradius build" && exit 1)
+# Note: rlm_python3 may or may not be available in this freeradius build.
+# The freeradius/freeradius-server:3.2.3 image does NOT bundle rlm_python3
+# and `freeradius-python3` is not in the apt repo. Adding it would require
+# either a different base image or compiling freeradius from source with
+# `--with-rlm_python3`. config_manager.py detects rlm_python3 availability
+# at runtime and skips python module generation if it's missing — site
+# templates handle has_python=False by omitting all `orw` references.
 
 # Create directory structure for managed configs and certificates
 RUN mkdir -p /etc/freeradius/orw-managed/mods-available \

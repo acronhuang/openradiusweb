@@ -13,6 +13,7 @@ Can be run standalone:
 import argparse
 import hashlib
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from typing import Optional
@@ -20,6 +21,28 @@ from typing import Optional
 import psycopg2
 import psycopg2.extras
 from jinja2 import Environment, FileSystemLoader
+
+
+# ============================================================
+# Capability detection
+# ============================================================
+
+def _rlm_python3_available() -> bool:
+    """Return True iff this freeradius binary has rlm_python3 compiled in.
+
+    Some freeradius distributions (incl. the upstream freeradius/freeradius-server
+    Docker image) don't ship rlm_python3. Without it, declaring `python3 orw {…}`
+    in any module/site config makes radiusd refuse to start with
+    "Failed to find python3 module". Skip generating that config when missing.
+    """
+    try:
+        out = subprocess.run(
+            ["radiusd", "-v"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return "rlm_python3" in (out.stdout + out.stderr)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
 
 
 # ============================================================
@@ -172,12 +195,17 @@ class FreeRADIUSConfigManager:
             # Strip extension if present; ldap_configs returns "ldap_<name>"
             ldap_module_names.append(filename)
 
-        # Python — rlm_python3 is installed via Dockerfile.freeradius and
-        # rlm_orw.py is bundled at /etc/freeradius/mods-config/python/orw.py.
-        python_content = self.generate_python_config()
-        has_python = bool(python_content)
+        # Python — rlm_python3 may or may not be available. Detect at runtime
+        # (the freeradius/freeradius-server:3.2.3 image does NOT bundle
+        # rlm_python3 by default). If missing, skip python config generation
+        # entirely; site templates handle has_python=False.
+        has_python = _rlm_python3_available()
         if has_python:
-            configs["mods-available/python"] = python_content
+            python_content = self.generate_python_config()
+            if python_content:
+                configs["mods-available/python"] = python_content
+            else:
+                has_python = False  # template render failed; treat as missing
 
         # Realms — used by inner-tunnel for proxy
         realms = self._load_realms()
