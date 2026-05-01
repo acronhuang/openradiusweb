@@ -13,7 +13,6 @@ Can be run standalone:
 import argparse
 import hashlib
 import os
-import subprocess
 import sys
 from datetime import datetime, timezone
 from typing import Optional
@@ -28,21 +27,25 @@ from jinja2 import Environment, FileSystemLoader
 # ============================================================
 
 def _rlm_python3_available() -> bool:
-    """Return True iff this freeradius binary has rlm_python3 compiled in.
+    """Return True iff this freeradius install has rlm_python3 compiled in.
 
-    Some freeradius distributions (incl. the upstream freeradius/freeradius-server
-    Docker image) don't ship rlm_python3. Without it, declaring `python3 orw {…}`
-    in any module/site config makes radiusd refuse to start with
-    "Failed to find python3 module". Skip generating that config when missing.
+    Without rlm_python3, declaring `python3 orw {…}` in any module/site
+    config makes radiusd refuse to start with "Failed to find python3
+    module" — the classic restart-loop trigger.
+
+    Detection is by .so presence, not `radiusd -v`: the latter never
+    actually lists compiled-in modules, so the prior check (PR #37)
+    returned False on every supported image even when rlm_python3 was
+    present. Filesystem check works regardless of which freeradius
+    package layout the base image uses (Debian apt = /usr/lib/freeradius/,
+    upstream containers = /usr/lib/x86_64-linux-gnu/freeradius/).
     """
-    try:
-        out = subprocess.run(
-            ["radiusd", "-v"],
-            capture_output=True, text=True, timeout=5,
-        )
-        return "rlm_python3" in (out.stdout + out.stderr)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    candidate_paths = [
+        "/usr/lib/freeradius/rlm_python3.so",
+        "/usr/lib/x86_64-linux-gnu/freeradius/rlm_python3.so",
+        "/usr/lib/aarch64-linux-gnu/freeradius/rlm_python3.so",
+    ]
+    return any(os.path.isfile(p) for p in candidate_paths)
 
 
 # ============================================================

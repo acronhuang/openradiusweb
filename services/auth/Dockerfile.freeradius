@@ -1,19 +1,46 @@
-# OpenRadiusWeb FreeRADIUS with rlm_python3, EAP-TLS, LDAP support
-FROM freeradius/freeradius-server:3.2.3
+# OpenRadiusWeb FreeRADIUS image — debian:bookworm-slim base.
+#
+# Switched from `freeradius/freeradius-server:3.2.3` so we can ship
+# rlm_python3, which the upstream image doesn't bundle. Debian's apt
+# ships freeradius-python3 + freeradius-ldap as separate packages that
+# install rlm_python3.so / rlm_ldap.so cleanly.
+#
+# FreeRADIUS version: Debian bookworm pins 3.2.1 (vs the previous
+# upstream 3.2.3). Same minor — module compatibility unchanged. If a
+# config feature added in 3.2.2/3.2.3 starts mattering, switch to
+# bookworm-backports or pin a different debian release.
+#
+# rlm_python3 lives at /usr/lib/freeradius/rlm_python3.so (verified at
+# build time). config_manager._rlm_python3_available() checks for
+# that file directly, instead of the broken `radiusd -v` heuristic
+# from PR #37 which never actually returned True (radiusd -v doesn't
+# list compiled-in modules).
 
-RUN apt-get update && apt-get install -y \
-    python3 python3-pip libpython3-dev \
-    && pip3 install --no-cache-dir \
-       psycopg2-binary nats-py jinja2 cryptography ldap3 \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+FROM debian:bookworm-slim
 
-# Note: rlm_python3 may or may not be available in this freeradius build.
-# The freeradius/freeradius-server:3.2.3 image does NOT bundle rlm_python3
-# and `freeradius-python3` is not in the apt repo. Adding it would require
-# either a different base image or compiling freeradius from source with
-# `--with-rlm_python3`. config_manager.py detects rlm_python3 availability
-# at runtime and skips python module generation if it's missing — site
-# templates handle has_python=False by omitting all `orw` references.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        freeradius freeradius-python3 freeradius-ldap \
+        python3 python3-pip \
+ && pip3 install --no-cache-dir --break-system-packages \
+        psycopg2-binary nats-py jinja2 cryptography ldap3 \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Debian puts freeradius config at /etc/freeradius/3.0/, but our
+# entrypoint + config_manager use /etc/freeradius/* paths inherited
+# from the upstream layout. Symlink each top-level item so both work
+# without touching every path in the orchestration layer. freeradius
+# itself still reads from /etc/freeradius/3.0/ (its compiled default).
+RUN cd /etc/freeradius && \
+    for f in 3.0/*; do \
+        ln -sfn "/etc/freeradius/3.0/$(basename "$f")" "$(basename "$f")"; \
+    done
+
+# Sanity check: rlm_python3 must actually be present after install.
+# If the package layout shifts in a future debian point release this
+# fails LOUDLY at build time instead of silently re-creating the
+# restart-loop bug.
+RUN test -f /usr/lib/freeradius/rlm_python3.so \
+    || (echo "ERROR: rlm_python3.so missing — apt layout changed?"; exit 1)
 
 # Create directory structure for managed configs and certificates
 RUN mkdir -p /etc/freeradius/orw-managed/mods-available \
