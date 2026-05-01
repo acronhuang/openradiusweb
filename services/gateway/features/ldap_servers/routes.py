@@ -142,9 +142,10 @@ async def test_ldap_connection(
     try:
         tls = None
         if server["use_tls"] or server["use_starttls"]:
+            # tls_require_cert is a VARCHAR enum: never|allow|try|demand
+            require_strict = server["tls_require_cert"] in ("demand", "try")
             tls = ldap3.Tls(
-                validate=ssl.CERT_REQUIRED if server["tls_require_cert"]
-                else ssl.CERT_NONE,
+                validate=ssl.CERT_REQUIRED if require_strict else ssl.CERT_NONE,
             )
 
         t0 = time.monotonic()
