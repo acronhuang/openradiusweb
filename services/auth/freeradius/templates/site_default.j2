@@ -161,11 +161,6 @@ server default {
 {% endif %}
 
         #
-        # Remove temporary proxy-state attributes
-        #
-        remove_reply_message_authenticator
-
-        #
         # Handle authentication rejections
         #
         Post-Auth-Type REJECT {
