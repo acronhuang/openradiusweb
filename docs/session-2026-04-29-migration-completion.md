@@ -343,3 +343,7 @@ e569c69 docs: add session log for the 2026-04-28 feature migration
 ---
 
 **Session 結束狀態：** main 處於 `5bb3b9b`（19/19 migration complete）；PR #26 與 #27 開出但未 merge，等使用者 review。所有 CI 在 merge 前綠燈。
+
+---
+
+**接續：** 後續 Round 1–10（fresh deployment 到 192.168.0.250 + 6 個 real-world bug 修正 → PR #29-#33 merged，PR #34 open，PR #35 待寫）記錄於 [`session-2026-04-30-deployment.md`](session-2026-04-30-deployment.md)。
