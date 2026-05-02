@@ -153,15 +153,9 @@ server inner-tunnel {
         Post-Auth-Type REJECT {
 {% if has_python %}
             #
-            # OpenRadiusWeb inner rejection handling.
-            # See site_default.j2 + python.j2 for why orw_reject (a
-            # second python3 instance) instead of plain orw — short
-            # version: rlm_python3 hides Post-Auth-Type from the
-            # request tuple, so the only reliable way to tell the
-            # python module "you're in the reject branch" is to call
-            # a different function via a different module instance.
+            # OpenRadiusWeb inner rejection handling
             #
-            orw_reject
+            orw
 {% endif %}
 
             attr_filter.access_reject
