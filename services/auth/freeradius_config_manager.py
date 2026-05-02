@@ -293,7 +293,12 @@ class FreeRADIUSConfigManager:
             "timer_expire": 60,
             "max_sessions": 4096,
             "tls_min_version": radius_settings.get("tls_min_version", "1.2"),
-            "tls_max_version": "1.3",
+            # TLS 1.3 default would be ideal but most 802.1X supplicants
+            # (Android, iOS, older Windows) do NOT support EAP-TLS over
+            # TLS 1.3 -- see freeradius's own warning at startup. Default
+            # to 1.2 so wireless clients actually work; let radius_settings
+            # override for environments that have only-1.3 supplicants.
+            "tls_max_version": radius_settings.get("tls_max_version", "1.2"),
             "cipher_list": "DEFAULT",
             "cache_lifetime": 24,
             "cache_max_entries": 255,
