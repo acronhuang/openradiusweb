@@ -58,3 +58,30 @@ python3 orw {
     }
 {% endif %}
 }
+
+#
+# Second instance for the Post-Auth-Type REJECT path. rlm_python3 only
+# exposes one func_post_auth per instance, and the request tuple it
+# passes to that function does NOT include the Post-Auth-Type control
+# attribute -- so a single function can't tell whether it was called
+# from the success branch or the REJECT branch (everything looked like
+# `result=success` in radius_auth_log even when freeradius logged
+# `Login incorrect`).
+#
+# Two instances pointing at the same module = two stable entry points,
+# each one knows its own context. The site templates call `orw` from
+# the regular post-auth section and `orw_reject` from
+# `Post-Auth-Type REJECT { ... }`.
+#
+python3 orw_reject {
+    module = orw
+
+    python_path = "{{ python_path | default('/etc/freeradius/mods-config/python') }}"
+
+{% if python_path_extra is defined and python_path_extra %}
+    python_path = "${..python_path}:{{ python_path_extra }}"
+{% endif %}
+
+    mod_post_auth = "${.module}"
+    func_post_auth = post_auth_reject
+}
