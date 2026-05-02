@@ -1,0 +1,13 @@
+# OpenRadiusWeb private FreeRADIUS dictionary additions.
+#
+# These attributes live in the internal-control namespace (no IANA
+# vendor ID — they're never sent over the wire) and exist purely so
+# that orw module callbacks can attach metadata to the request/control
+# list without freeradius logging "Failed to find attribute" warnings
+# on every request.
+#
+# This file is $INCLUDEd from /etc/freeradius/3.0/dictionary at image
+# build time (see Dockerfile.freeradius).
+
+ATTRIBUTE   OpenRadiusWeb-Realm         3001    string
+ATTRIBUTE   OpenRadiusWeb-Policy-Name   3002    string

@@ -18,11 +18,21 @@
 
 FROM debian:bookworm-slim
 
+# Python deps for rlm_python3:
+# - Use apt for the C-extension stuff (psycopg2, cryptography, ldap3) so
+#   they land in /usr/lib/python3/dist-packages — the Debian-standard
+#   path that rlm_python3's _ensure_site_packages() in rlm_orw.py adds
+#   to sys.path. Avoids pip's --break-system-packages dance and gives us
+#   pre-built wheels (no build-essential needed at image-build time).
+# - jinja2 is also apt to match.
+# - nats-py is the only one still pip-installed because Debian doesn't
+#   package the official `nats-py` (the apt `python3-nats` is a
+#   different unrelated `nats` library).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         freeradius freeradius-python3 freeradius-ldap \
         python3 python3-pip \
- && pip3 install --no-cache-dir --break-system-packages \
-        psycopg2-binary nats-py jinja2 cryptography ldap3 \
+        python3-psycopg2 python3-jinja2 python3-cryptography python3-ldap3 \
+ && pip3 install --no-cache-dir --break-system-packages nats-py \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Debian puts freeradius config at /etc/freeradius/3.0/, but our
@@ -58,6 +68,17 @@ COPY services/auth/freeradius/mods-config/python/rlm_orw.py \
 # Copy Jinja2 config templates
 COPY services/auth/freeradius/templates/ \
      /etc/freeradius/orw-templates/
+
+# Register OpenRadiusWeb private dictionary attributes so that orw
+# module callbacks can attach metadata to control: without freeradius
+# spamming "Failed to find attribute" warnings on every request.
+# Append $INCLUDE idempotently so repeated builds don't duplicate it.
+COPY services/auth/freeradius/dictionary.openradiusweb \
+     /etc/freeradius/3.0/dictionary.openradiusweb
+RUN if ! grep -q "dictionary.openradiusweb" /etc/freeradius/3.0/dictionary; then \
+        echo '$INCLUDE dictionary.openradiusweb' \
+            >> /etc/freeradius/3.0/dictionary; \
+    fi
 
 # Copy config manager and entrypoint
 COPY services/auth/freeradius_config_manager.py /opt/orw/
