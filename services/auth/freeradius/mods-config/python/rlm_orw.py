@@ -375,6 +375,48 @@ def _normalize_mac(raw_mac):
     return raw_mac.lower()
 
 
+def _lookup_mab_device(mac_clean):
+    """Look up an enabled, non-expired MAB device by MAC.
+
+    Returns the row as a dict (RealDictCursor) or None if not found / on
+    error. Used by both:
+    - authorize() for true MAB requests (Service-Type=Call-Check)
+    - post_auth() to apply per-device VLAN overrides on successful 802.1X
+      authentication, so the same mab_devices entry can both whitelist
+      a device for MAB and pin a VLAN for users on a WPA2-Enterprise SSID.
+    """
+    conn = _get_db()
+    if not conn:
+        return None
+    try:
+        tenant_id = os.environ.get("ORW_TENANT_ID")
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if tenant_id:
+                cur.execute(
+                    "SELECT * FROM mab_devices "
+                    "WHERE mac_address = %s::macaddr "
+                    "AND enabled = true "
+                    "AND (expiry_date IS NULL OR expiry_date > NOW()) "
+                    "AND tenant_id = %s",
+                    (mac_clean, tenant_id),
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM mab_devices "
+                    "WHERE mac_address = %s::macaddr "
+                    "AND enabled = true "
+                    "AND (expiry_date IS NULL OR expiry_date > NOW())",
+                    (mac_clean,),
+                )
+            return cur.fetchone()
+    except Exception as e:
+        radiusd.radlog(
+            radiusd.L_ERR,
+            f"OpenRadiusWeb MAB device lookup error: {e}",
+        )
+        return None
+
+
 def authorize(p):
     """
     Called during the authorize phase.
@@ -408,59 +450,32 @@ def authorize(p):
         radiusd.radlog(radiusd.L_INFO,
                        f"OpenRadiusWeb MAB request: {mac_clean}")
 
-        conn = _get_db()
-        if conn:
-            try:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    # Check tenant-scoped if TENANT_ID is set
-                    tenant_id = os.environ.get("ORW_TENANT_ID")
-                    if tenant_id:
-                        cur.execute(
-                            "SELECT * FROM mab_devices "
-                            "WHERE mac_address = %s::macaddr "
-                            "AND enabled = true "
-                            "AND (expiry_date IS NULL OR expiry_date > NOW()) "
-                            "AND tenant_id = %s",
-                            (mac_clean, tenant_id)
-                        )
-                    else:
-                        cur.execute(
-                            "SELECT * FROM mab_devices "
-                            "WHERE mac_address = %s::macaddr "
-                            "AND enabled = true "
-                            "AND (expiry_date IS NULL OR expiry_date > NOW())",
-                            (mac_clean,)
-                        )
-                    mab_device = cur.fetchone()
+        mab_device = _lookup_mab_device(mac_clean)
+        if mab_device:
+            vlan_id = mab_device.get("assigned_vlan_id")
+            dev_name = mab_device.get("name", "unknown")
+            radiusd.radlog(radiusd.L_INFO,
+                           f"OpenRadiusWeb MAB approved: {mac_clean} "
+                           f"({dev_name}) -> VLAN {vlan_id}")
 
-                if mab_device:
-                    vlan_id = mab_device.get("assigned_vlan_id")
-                    dev_name = mab_device.get("name", "unknown")
-                    radiusd.radlog(radiusd.L_INFO,
-                                   f"OpenRadiusWeb MAB approved: {mac_clean} "
-                                   f"({dev_name}) -> VLAN {vlan_id}")
+            reply_attrs = []
+            if vlan_id:
+                reply_attrs.extend([
+                    ("Tunnel-Type", "VLAN"),
+                    ("Tunnel-Medium-Type", "IEEE-802"),
+                    ("Tunnel-Private-Group-Id", str(vlan_id)),
+                ])
 
-                    reply_attrs = []
-                    if vlan_id:
-                        reply_attrs.extend([
-                            ("Tunnel-Type", "VLAN"),
-                            ("Tunnel-Medium-Type", "IEEE-802"),
-                            ("Tunnel-Private-Group-Id", str(vlan_id)),
-                        ])
+            control_attrs = [("Auth-Type", "Accept")]
+            if realm:
+                control_attrs.append(("OpenRadiusWeb-Realm", realm))
 
-                    control_attrs = [("Auth-Type", "Accept")]
-                    if realm:
-                        control_attrs.append(("OpenRadiusWeb-Realm", realm))
-
-                    return (radiusd.RLM_MODULE_OK,
-                            tuple(reply_attrs),
-                            tuple(control_attrs))
-                else:
-                    radiusd.radlog(radiusd.L_INFO,
-                                   f"OpenRadiusWeb MAB not in whitelist: {mac_clean}")
-            except Exception as e:
-                radiusd.radlog(radiusd.L_ERR,
-                               f"OpenRadiusWeb MAB check error: {e}")
+            return (radiusd.RLM_MODULE_OK,
+                    tuple(reply_attrs),
+                    tuple(control_attrs))
+        else:
+            radiusd.radlog(radiusd.L_INFO,
+                           f"OpenRadiusWeb MAB not in whitelist: {mac_clean}")
 
     # Non-MAB or MAB-not-found: existing behavior
     if realm:
@@ -628,12 +643,18 @@ def post_auth(p):
     Called after authentication completes (success or failure).
     Logs the auth attempt and performs Dynamic VLAN Assignment on success.
 
-    Dynamic VLAN flow:
-    1. User authenticates via 802.1X (PEAP/EAP-TLS/EAP-TTLS)
-    2. On success, query LDAP for user's group memberships
-    3. Match groups against group_vlan_mappings table (by priority)
-    4. Return Tunnel-Type/Tunnel-Medium-Type/Tunnel-Private-Group-Id
-    5. Switch assigns port to the specified VLAN
+    VLAN assignment precedence (first match wins):
+    1. Per-device override (mab_devices.assigned_vlan_id keyed by
+       Calling-Station-Id). Lets WPA2-Enterprise SSIDs pin a VLAN by
+       device MAC even when 802.1X authenticates a real user account
+       (you can't do classical MAB on WPA2-Enterprise — the supplicant
+       has to do EAP — so the mab_devices table doubles as a per-MAC
+       VLAN table here).
+    2. Group-based mapping (group_vlan_mappings keyed by AD memberOf).
+       Requires LDAP group lookup for the authenticated user.
+
+    On match, return Tunnel-Type/Tunnel-Medium-Type/
+    Tunnel-Private-Group-Id and the NAS assigns the port/STA to that VLAN.
     """
     start_time = time.time()
     request = _extract_attrs(p)
@@ -648,37 +669,57 @@ def post_auth(p):
     # Build reply dict from config items
     reply = {}
 
-    # Dynamic VLAN Assignment on successful authentication
+    # VLAN Assignment on successful authentication
     reply_attrs = []
     if auth_result == "success":
         username = request.get("User-Name", "")
         auth_method = _detect_auth_method(request, {})
+        calling_mac = request.get("Calling-Station-Id", "")
 
-        # Only do VLAN assignment for 802.1X methods (not MAB - handled in authorize)
+        # Skip the MAB authorize path entirely (handled there). For 802.1X,
+        # check per-device override first, then fall back to group-based.
         if auth_method != "MAB" and username:
-            user_domain = None
-            if "\\" in username:
-                user_domain, _ = username.split("\\", 1)
-            elif "@" in username:
-                _, user_domain = username.rsplit("@", 1)
+            vlan_id = None
+            vlan_source = None  # for logging
 
-            # Look up user's LDAP groups
-            groups = _get_user_ldap_groups(username, user_domain)
-
-            if groups:
-                vlan_id, matched_group = _lookup_vlan_for_groups(groups)
-                if vlan_id:
-                    reply_attrs = [
-                        ("Tunnel-Type", "VLAN"),
-                        ("Tunnel-Medium-Type", "IEEE-802"),
-                        ("Tunnel-Private-Group-Id", str(vlan_id)),
-                    ]
-                    reply["Tunnel-Private-Group-Id"] = str(vlan_id)
-                    radiusd.radlog(
-                        radiusd.L_INFO,
-                        f"OpenRadiusWeb Dynamic VLAN: user={username} "
-                        f"group={matched_group} -> VLAN {vlan_id}"
+            # Priority 1: per-MAC override from mab_devices table
+            if calling_mac:
+                mac_clean = _normalize_mac(calling_mac)
+                mab_device = _lookup_mab_device(mac_clean)
+                if mab_device and mab_device.get("assigned_vlan_id"):
+                    vlan_id = mab_device["assigned_vlan_id"]
+                    vlan_source = (
+                        f"per-MAC override (device="
+                        f"{mab_device.get('name', 'unnamed')}, "
+                        f"mac={mac_clean})"
                     )
+
+            # Priority 2: group-based mapping (only if no per-MAC match)
+            if vlan_id is None:
+                user_domain = None
+                if "\\" in username:
+                    user_domain, _ = username.split("\\", 1)
+                elif "@" in username:
+                    _, user_domain = username.rsplit("@", 1)
+
+                groups = _get_user_ldap_groups(username, user_domain)
+                if groups:
+                    vlan_id, matched_group = _lookup_vlan_for_groups(groups)
+                    if vlan_id:
+                        vlan_source = f"AD group {matched_group}"
+
+            if vlan_id:
+                reply_attrs = [
+                    ("Tunnel-Type", "VLAN"),
+                    ("Tunnel-Medium-Type", "IEEE-802"),
+                    ("Tunnel-Private-Group-Id", str(vlan_id)),
+                ]
+                reply["Tunnel-Private-Group-Id"] = str(vlan_id)
+                radiusd.radlog(
+                    radiusd.L_INFO,
+                    f"OpenRadiusWeb VLAN assigned: user={username} "
+                    f"source={vlan_source} -> VLAN {vlan_id}"
+                )
 
     processing_time_ms = int((time.time() - start_time) * 1000)
 
