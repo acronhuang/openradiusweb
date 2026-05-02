@@ -538,6 +538,185 @@ EAP-TTLS + PAP**，不能用 PEAP-MSCHAPv2。
 
 ---
 
+## 設定一個純 MAB SSID（給不能打帳密的設備）
+
+**何時需要這個**：印表機、IP 攝影機、IoT 感測器等不能輸入 802.1X
+帳密的設備。802.1X 本身要求 supplicant 主動跑 EAP，這些設備做不到 →
+要走 MAB（MAC Authentication Bypass）。
+
+### 重要前提
+
+**WPA2/3-Enterprise SSID 不能做純 MAB**。Enterprise 模式強制 supplicant
+跑 EAP，AP 不會 fallback 到 MAC-only 路徑。要純 MAB 必須**另開一個 Open
+或 WPA2-Personal 的 SSID**。
+
+| SSID 加密 | 純 MAB 可行？ | 說明 |
+|----------|--------------|------|
+| Open + radius-mac-auth | ✅ | 設備一 association 就送 MAC 給 RADIUS |
+| WPA2-Personal + radius-mac-auth | ✅ | 多一層 PSK 門檻，過 PSK 後 MAC 驗證 |
+| WPA2-Enterprise + radius-mac-auth | ❌ | 變成「802.1X 之前先檢查 MAC」雙重驗證，仍要打帳密 |
+
+如果你的場景是「802.1X 通過後依設備 MAC 分到不同 VLAN」（同一個 SSID
+不同設備進不同網段），那不是 MAB —— 用 PR #59 的 per-MAC VLAN override
+（`mab_devices.assigned_vlan_id` 在 802.1X post-auth 階段套用）。
+
+### FortiWiFi 60C 端設定（FortiOS 5.2.x，在 192.168.0.x 部署實測通過）
+
+#### 1. 建 VAP（SSID）
+
+```
+config wireless-controller vap
+    edit "MAB_Auth"
+        set ssid "MAB_Auth"
+        set security open
+        set radius-mac-auth enable
+        set radius-mac-auth-server "Radius"
+    next
+end
+```
+
+關鍵：
+- `security open` —— 不要 `wpa2-only-enterprise`，那會強制 802.1X
+- `radius-mac-auth enable` —— AP 把連線設備的 MAC 當 User-Name 送 RADIUS
+- `radius-mac-auth-server "Radius"` —— 指向你的 RADIUS server entry
+
+⚠️ **不要用** `mac-auth-bypass`（那是有線 switch port 的指令，
+WiFi VAP 沒有這個欄位，FortiOS CLI 會直接 parse error）。WiFi MAB 的關鍵字
+就是 `radius-mac-auth`。
+
+#### 2. 把 SSID 綁到 radio（讓它廣播）
+
+先看你 wtp-profile 名字：
+
+```
+config wireless-controller wtp-profile
+    show
+end
+```
+
+找到 profile 後加上 MAB_Auth：
+
+```
+config wireless-controller wtp-profile
+    edit "<your-profile-name>"
+        config radio-1
+            set vaps "Radius" "MAB_Auth"
+        end
+        config radio-2
+            set vaps "Radius" "MAB_Auth"
+        end
+    next
+end
+```
+
+#### 3. system interface（給 IP）
+
+```
+config system interface
+    edit "MAB_Auth"
+        set vdom "root"
+        set type vap-switch
+        set ip 192.168.99.1 255.255.255.0
+        set allowaccess ping
+        set role lan
+    next
+end
+```
+
+#### 4. DHCP server
+
+```
+config system dhcp server
+    edit 0
+        set interface "MAB_Auth"
+        set default-gateway 192.168.99.1
+        set netmask 255.255.255.0
+        set dns-service default
+        config ip-range
+            edit 1
+                set start-ip 192.168.99.100
+                set end-ip 192.168.99.200
+            next
+        end
+    next
+end
+```
+
+#### 5. Firewall policy（MAB_Auth → WAN）
+
+```
+config firewall policy
+    edit 0
+        set name "MAB_Auth_to_WAN"
+        set srcintf "MAB_Auth"
+        set dstintf "wan1"
+        set srcaddr "all"
+        set dstaddr "all"
+        set action accept
+        set schedule "always"
+        set service "ALL"
+        set nat enable
+    next
+end
+```
+
+把 `wan1` 換成你實際 WAN 介面名稱（`show system interface | grep -i wan`）。
+
+### OpenRadiusWeb 端：把設備 MAC 加進白名單
+
+打開 `http://<server>:8888` → 側邊選單 RADIUS → **MAB Devices** → Add Device
+
+| 欄位 | 範例 |
+|------|------|
+| MAC Address | `3c:13:5a:cc:21:21`（設備真實 MAC，**不是隨機 MAC**）|
+| Name | POCO F5 Pro |
+| Device Type | phone / printer / iot |
+| Assigned VLAN | 留空，或填 IoT VLAN ID |
+| Enabled | ✓ |
+
+### 測試 + 預期 log
+
+設備連 MAB_Auth SSID（**不需要打密碼**），server 端 tail：
+
+```bash
+sudo docker logs --tail=0 -f orw-freeradius
+```
+
+成功時：
+
+```
+OpenRadiusWeb MAB request: 3c:13:5a:cc:21:21
+OpenRadiusWeb MAB approved: 3c:13:5a:cc:21:21 (POCO F5 Pro) -> VLAN 15
+Auth: Login OK: [3C-13-5A-CC-21-21/3C-13-5A-CC-21-21]
+```
+
+### 兩個高機率踩雷點
+
+#### 雷 1：手機隨機 MAC
+
+Android / iOS 對每個 SSID 預設用「隨機 MAC」（隨機 MAC 第一個 byte
+通常是 02/06/0A/0E 結尾的 6 種，例如 `0e:9a:05:d2:bb:b2`）。隨機 MAC
+**重設可能換**，下次連同一個 SSID 用的 MAC 跟你白名單的對不上 →
+`MAB not in whitelist` reject。
+
+修法：手機 WiFi → 該 SSID → **隱私 → 改「使用裝置 MAC」**，然後在
+mab_devices 用真實 MAC（通常 `3c:`/`40:`/`fc:` 等開頭非隨機）。
+
+#### 雷 2：MAC 格式不一致
+
+freeradius 收到的 MAC 可能是 `3c-13-5a-cc-21-21`（dash）或
+`3c:13:5a:cc:21:21`（colon）或 `3c135acc2121`（無分隔符）。
+orw 模組的 `_normalize_mac()` 會統一成 colon-lowercase 格式存進
+mab_devices，但**手動在 UI 輸入時要用 colon-lowercase**，不要用
+大寫或 dash。
+
+實際從 RADIUS log 看當前 MAC 格式：
+```bash
+sudo docker logs --tail=20 orw-freeradius | grep "MAB request"
+```
+
+---
+
 ## 已知未解問題
 
 ### `Failed to find attribute config:OpenRadiusWeb-Realm`
@@ -558,4 +737,6 @@ freeradius dict 註冊，但不影響認證流程，只是洗 log。
 
 2026-05-02 ming@mds.local debug session。
 從 `Ignoring request from unknown client` 開始，到 `Login OK` 為止，
-共 10 個獨立問題、4 個小時、2 個 PR（#56 #57）、若干 SQL hotfix。
+共 10 個獨立問題、4+ 個小時、4 個 PR（#56 #57 #58 #59）、若干 SQL hotfix，
+最後加上純 MAB SSID 從零做到通（FortiWiFi 60C + OpenRadiusWeb mab_devices
+表 + POCO F5 Pro 真實 MAC `3c:13:5a:cc:21:21` → VLAN 15）。
