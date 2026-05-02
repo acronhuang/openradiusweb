@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Typography, Card, Tabs, Descriptions, Form, InputNumber,
+  Typography, Card, Tabs, Form, InputNumber,
   Select, Button, Space, Badge, message, Spin, List, Tag, Popconfirm,
 } from 'antd';
 import {
@@ -19,8 +19,11 @@ interface ServiceStatus {
 
 export default function SystemSettings() {
   // RADIUS tab
-  const [radiusSettings, setRadiusSettings] = useState<Record<string, any>>({});
   const [radiusLoading, setRadiusLoading] = useState(false);
+  const [radiusSaving, setRadiusSaving] = useState(false);
+  const [radiusForm] = Form.useForm();
+  // Watched form value for the TLS 1.3 warning (re-renders when changed)
+  const tlsMaxWatched = Form.useWatch('tls_max_version', radiusForm);
 
   // General tab
   const [generalLoading, setGeneralLoading] = useState(false);
@@ -64,15 +67,47 @@ export default function SystemSettings() {
       const res = await api.get('/settings/radius');
       const data = res.data || {};
       // Backend returns { category, settings: [{setting_key, setting_value}, ...] }
+      let map: Record<string, any> = {};
       if (data.settings && Array.isArray(data.settings)) {
-        const map: Record<string, any> = {};
         data.settings.forEach((s: any) => { map[s.setting_key] = s.setting_value; });
-        setRadiusSettings(map);
       } else {
-        setRadiusSettings(data);
+        map = data;
       }
+      radiusForm.setFieldsValue({
+        auth_port: map.auth_port ? Number(map.auth_port) : undefined,
+        acct_port: map.acct_port ? Number(map.acct_port) : undefined,
+        coa_port: map.coa_port ? Number(map.coa_port) : undefined,
+        default_eap_type: map.default_eap_type || 'peap',
+        // Defaults match what migrations/002 + 005 seed
+        tls_min_version: map.tls_min_version || '1.2',
+        tls_max_version: map.tls_max_version || '1.2',
+      });
     } catch (err) { message.error(extractErrorMessage(err, 'Failed to load RADIUS settings')); }
     setRadiusLoading(false);
+  };
+
+  const handleSaveRadius = async () => {
+    try {
+      const values = await radiusForm.validateFields();
+      // tls_max < tls_min would silently break EAP — block at form level
+      const versions = ['1.0', '1.1', '1.2', '1.3'];
+      if (versions.indexOf(values.tls_max_version) < versions.indexOf(values.tls_min_version)) {
+        message.error('TLS Max Version must be ≥ TLS Min Version');
+        return;
+      }
+      setRadiusSaving(true);
+      const settingsMap: Record<string, string> = {};
+      Object.entries(values).forEach(([k, v]) => { settingsMap[k] = String(v); });
+      await api.put('/settings/radius', { settings: settingsMap });
+      message.success(
+        'RADIUS settings saved. TLS / EAP changes apply on next freeradius config regeneration ' +
+        '(within ~30s via watcher, or restart freeradius to force).'
+      );
+    } catch (err) {
+      message.error(extractErrorMessage(err, 'Failed to save RADIUS settings'));
+    } finally {
+      setRadiusSaving(false);
+    }
   };
 
   const loadGeneralSettings = async () => {
@@ -159,25 +194,111 @@ export default function SystemSettings() {
       ),
       children: (
         <Spin spinning={radiusLoading}>
-          <Descriptions bordered column={1} size="small">
-            <Descriptions.Item label="Auth Port">
-              {radiusSettings.auth_port ?? '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Acct Port">
-              {radiusSettings.acct_port ?? '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="CoA Port">
-              {radiusSettings.coa_port ?? '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="Default EAP Type">
-              {radiusSettings.default_eap_type ?? '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="TLS Min Version">
-              {radiusSettings.tls_min_version ?? '-'}
-            </Descriptions.Item>
-          </Descriptions>
+          <Form
+            form={radiusForm}
+            layout="vertical"
+            style={{ maxWidth: 500 }}
+          >
+            <Form.Item
+              name="auth_port"
+              label="Auth Port"
+              extra="UDP port freeradius listens on for Access-Request packets. Default 1812. Changing requires a freeradius container restart."
+              rules={[{ required: true, message: 'Required' }]}
+            >
+              <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item
+              name="acct_port"
+              label="Acct Port"
+              extra="UDP port for Accounting-Request packets. Default 1813. Restart required."
+              rules={[{ required: true, message: 'Required' }]}
+            >
+              <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item
+              name="coa_port"
+              label="CoA Port"
+              extra="UDP port for Change of Authorization. Default 3799. Restart required for the coa_service container."
+              rules={[{ required: true, message: 'Required' }]}
+            >
+              <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item
+              name="default_eap_type"
+              label="Default EAP Type"
+              extra="Inner EAP method used when client doesn't specify one."
+              rules={[{ required: true, message: 'Required' }]}
+            >
+              <Select>
+                <Select.Option value="peap">PEAP (Windows-friendly)</Select.Option>
+                <Select.Option value="ttls">EAP-TTLS (LDAP-friendly)</Select.Option>
+                <Select.Option value="tls">EAP-TLS (cert-based)</Select.Option>
+              </Select>
+            </Form.Item>
+            <Form.Item
+              name="tls_min_version"
+              label="TLS Min Version"
+              extra="Minimum TLS version accepted for EAP-TLS / PEAP / TTLS handshake."
+              rules={[{ required: true, message: 'Required' }]}
+            >
+              <Select>
+                <Select.Option value="1.0">1.0 (insecure, legacy only)</Select.Option>
+                <Select.Option value="1.1">1.1 (deprecated)</Select.Option>
+                <Select.Option value="1.2">1.2 (recommended)</Select.Option>
+                <Select.Option value="1.3">1.3</Select.Option>
+              </Select>
+            </Form.Item>
+            <Form.Item
+              name="tls_max_version"
+              label="TLS Max Version"
+              extra="Maximum TLS version offered to clients. Default 1.2 — see warning below if you select 1.3."
+              rules={[{ required: true, message: 'Required' }]}
+            >
+              <Select>
+                <Select.Option value="1.0">1.0</Select.Option>
+                <Select.Option value="1.1">1.1</Select.Option>
+                <Select.Option value="1.2">1.2 (recommended for 802.1X)</Select.Option>
+                <Select.Option value="1.3">1.3 (limited supplicant support)</Select.Option>
+              </Select>
+            </Form.Item>
+            {tlsMaxWatched === '1.3' && (
+              <div
+                style={{
+                  marginTop: -8,
+                  marginBottom: 16,
+                  padding: '8px 12px',
+                  background: '#fffbe6',
+                  border: '1px solid #ffe58f',
+                  borderRadius: 4,
+                  color: '#664500',
+                  fontSize: 12,
+                }}
+              >
+                ⚠ <strong>TLS 1.3 has limited 802.1X supplicant support.</strong>{' '}
+                Most Android, iOS, and older Windows clients will fail to connect with EAP-PEAP / EAP-TTLS / EAP-TLS over TLS 1.3.
+                FreeRADIUS itself prints this warning at startup. Only enable TLS 1.3 max if all your client devices are
+                verified to support EAP over TLS 1.3 (special wpa_supplicant builds or Windows 11 22H2+).
+                Reference:{' '}
+                <a href="https://wiki.freeradius.org/" target="_blank" rel="noopener noreferrer">
+                  FreeRADIUS wiki
+                </a>.
+              </div>
+            )}
+            <Form.Item>
+              <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                onClick={handleSaveRadius}
+                loading={radiusSaving}
+              >
+                Save Settings
+              </Button>
+            </Form.Item>
+          </Form>
           <div style={{ marginTop: 12, color: '#999', fontSize: 12 }}>
-            RADIUS port settings are read-only. Changing ports requires a container restart.
+            Port changes require a freeradius / coa_service container restart to take effect.
+            EAP type and TLS version changes apply automatically when the watcher regenerates
+            the freeradius config (~30s) or on the next freeradius restart.
           </div>
         </Spin>
       ),
