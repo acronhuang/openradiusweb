@@ -133,9 +133,14 @@ server inner-tunnel {
     post-auth {
 {% if has_python %}
         #
-        # OpenRadiusWeb inner tunnel post-auth
-        # Applies policies, VLAN assignments, etc.
+        # OpenRadiusWeb inner tunnel post-auth.
+        # Tag as success so orw logs result=success in radius_auth_log.
+        # See dictionary.openradiusweb for why a marker is needed (short
+        # version: Post-Auth-Type isn't exposed to rlm_python3).
         #
+        update request {
+            &OpenRadiusWeb-Result := "success"
+        }
         orw
 {% endif %}
 
@@ -153,8 +158,12 @@ server inner-tunnel {
         Post-Auth-Type REJECT {
 {% if has_python %}
             #
-            # OpenRadiusWeb inner rejection handling
+            # OpenRadiusWeb inner rejection handling.
+            # Tag as reject so orw logs result=reject correctly.
             #
+            update request {
+                &OpenRadiusWeb-Result := "reject"
+            }
             orw
 {% endif %}
 
