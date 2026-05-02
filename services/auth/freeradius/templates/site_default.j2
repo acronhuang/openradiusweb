@@ -78,7 +78,17 @@ server default {
         #
         # LDAP authorization: {{ ldap_mod.name }}
         #
+        # See site_inner_tunnel.j2 for the rationale: LDAP looks the
+        # user up; if the request carries a plaintext password we tell
+        # the authenticate section to verify it via LDAP bind. Same
+        # block here for direct (non-EAP) PAP at the outer site.
+        #
         {{ ldap_mod.module_name }}
+        if ((ok || updated) && User-Password) {
+            update control {
+                &Auth-Type := {{ ldap_mod.module_name }}
+            }
+        }
 {% endfor %}
 
 {% if has_python %}

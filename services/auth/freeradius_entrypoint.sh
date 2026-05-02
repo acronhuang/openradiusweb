@@ -53,18 +53,44 @@ for site in /etc/freeradius/orw-managed/sites-available/*; do
     fi
 done
 
-# proxy.conf and clients.conf: also symlinks, not copies, so watcher
-# updates take effect on HUP. (Was cp pre-PR #36 — see PR #34 / #36.)
+# proxy.conf and clients.conf: symlinks, not copies, so watcher updates
+# take effect on HUP. (Was cp pre-PR #36 — see PR #34 / #36.)
+#
+# IMPORTANT: must symlink at /etc/freeradius/3.0/ (the actual config dir
+# Debian's freeradius package reads from), NOT at /etc/freeradius/.
+# Dockerfile.freeradius creates /etc/freeradius/<file> -> 3.0/<file>
+# convenience symlinks for the upstream layout, but radiusd.conf does
+# `$INCLUDE clients.conf` which resolves relative to its own location
+# (/etc/freeradius/3.0/radiusd.conf) and looks for
+# /etc/freeradius/3.0/clients.conf. Symlinking only at the upper level
+# leaves the stock Debian /etc/freeradius/3.0/clients.conf in place
+# (with only localhost) and freeradius silently rejects every request
+# from real NAS clients with "Ignoring request from unknown client".
+# Took 4+ hours to diagnose this in the 2026-05-02 deployment.
+FR_CONF_DIR=/etc/freeradius/3.0
 if [ -f /etc/freeradius/orw-managed/proxy.conf ]; then
-    rm -f /etc/freeradius/proxy.conf
-    ln -sf /etc/freeradius/orw-managed/proxy.conf /etc/freeradius/proxy.conf
-    echo "Linked proxy.conf -> orw-managed/proxy.conf"
+    rm -f "$FR_CONF_DIR/proxy.conf"
+    ln -sf /etc/freeradius/orw-managed/proxy.conf "$FR_CONF_DIR/proxy.conf"
+    echo "Linked $FR_CONF_DIR/proxy.conf -> orw-managed/proxy.conf"
 fi
 if [ -f /etc/freeradius/orw-managed/clients.conf ]; then
-    rm -f /etc/freeradius/clients.conf
-    ln -sf /etc/freeradius/orw-managed/clients.conf /etc/freeradius/clients.conf
-    echo "Linked clients.conf -> orw-managed/clients.conf"
+    rm -f "$FR_CONF_DIR/clients.conf"
+    ln -sf /etc/freeradius/orw-managed/clients.conf "$FR_CONF_DIR/clients.conf"
+    echo "Linked $FR_CONF_DIR/clients.conf -> orw-managed/clients.conf"
 fi
+
+# Make freeradius log to stdout so `docker logs orw-freeradius` shows
+# auth events. By default Debian's radiusd.conf writes to a log file
+# (/var/log/freeradius/radius.log) — fine on a VM but invisible to
+# docker logs. Also enable auth logging so Login OK/incorrect events
+# are recorded. Both lost on container recreation but baked-in here
+# so they re-apply automatically on every start.
+sed -i \
+    -e 's|^\([[:space:]]*\)destination = files|\1destination = stdout|' \
+    -e 's|^\([[:space:]]*\)auth = no|\1auth = yes|' \
+    -e 's|^\([[:space:]]*\)auth_badpass = no|\1auth_badpass = yes|' \
+    -e 's|^\([[:space:]]*\)auth_goodpass = no|\1auth_goodpass = yes|' \
+    "$FR_CONF_DIR/radiusd.conf"
 
 # Permissions: cert manager writes server.key directly into certs/
 # (not into a subdir), so the chmod target is the file itself, not a
