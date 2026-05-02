@@ -674,8 +674,31 @@ def _lookup_vlan_for_groups(groups):
 
 def post_auth(p):
     """
-    Called after authentication completes (success or failure).
-    Logs the auth attempt and performs Dynamic VLAN Assignment on success.
+    Called from the regular `post-auth { ... }` section — i.e. the
+    success branch. Bound via the `python3 orw { func_post_auth = post_auth }`
+    instance in python.j2.
+    """
+    return _do_post_auth(p, auth_result="success")
+
+
+def post_auth_reject(p):
+    """
+    Called from `Post-Auth-Type REJECT { ... }` — i.e. the failure
+    branch. Bound via the second `python3 orw_reject` instance.
+
+    We need a separate function (rather than reading Post-Auth-Type from
+    the request) because rlm_python3 does NOT include control attributes
+    like Post-Auth-Type in the request tuple it passes to Python. Without
+    this split, every reject was logged as `result=success` in
+    radius_auth_log even when freeradius logged "Login incorrect".
+    """
+    return _do_post_auth(p, auth_result="reject")
+
+
+def _do_post_auth(p, auth_result):
+    """
+    Shared implementation for both post_auth entry points.
+    Logs the auth attempt and (on success) performs VLAN assignment.
 
     VLAN assignment precedence (first match wins):
     1. Per-device override (mab_devices.assigned_vlan_id keyed by
@@ -692,13 +715,6 @@ def post_auth(p):
     """
     start_time = time.time()
     request = _extract_attrs(p)
-
-    # Determine auth result from Post-Auth-Type
-    post_auth_type = request.get("Post-Auth-Type", "")
-    if post_auth_type == "Reject" or post_auth_type == "REJECT":
-        auth_result = "reject"
-    else:
-        auth_result = "success"
 
     # Build reply dict from config items
     reply = {}

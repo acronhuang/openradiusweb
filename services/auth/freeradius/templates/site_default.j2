@@ -176,10 +176,13 @@ server default {
         Post-Auth-Type REJECT {
 {% if has_python %}
             #
-            # OpenRadiusWeb rejection handling
-            # Logs failed authentication attempts
+            # OpenRadiusWeb rejection handling.
+            # Use the orw_reject instance (second python3 block in
+            # mods-available/python) so the python module knows it's
+            # the reject branch — Post-Auth-Type isn't visible to
+            # rlm_python3, see python.j2 comment for the full reason.
             #
-            orw
+            orw_reject
 {% endif %}
 
             #
