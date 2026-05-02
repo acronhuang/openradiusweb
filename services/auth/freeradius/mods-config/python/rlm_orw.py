@@ -693,9 +693,16 @@ def post_auth(p):
     start_time = time.time()
     request = _extract_attrs(p)
 
-    # Determine auth result from Post-Auth-Type
-    post_auth_type = request.get("Post-Auth-Type", "")
-    if post_auth_type == "Reject" or post_auth_type == "REJECT":
+    # Determine auth result from the OpenRadiusWeb-Result marker that the
+    # site templates set immediately before calling us. We can't check
+    # Post-Auth-Type here — rlm_python3 doesn't expose control attributes
+    # to Python's request tuple, and PR #62's two-instance workaround
+    # crashes freeradius with a GIL-state error (PR #63 reverted it).
+    # The marker is set by `update request { &OpenRadiusWeb-Result := ...}`
+    # in site_default.j2 / site_inner_tunnel.j2 — "success" in regular
+    # post-auth, "reject" in Post-Auth-Type REJECT.
+    result_marker = request.get("OpenRadiusWeb-Result", "")
+    if result_marker.lower() == "reject":
         auth_result = "reject"
     else:
         auth_result = "success"

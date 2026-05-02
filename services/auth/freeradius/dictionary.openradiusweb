@@ -11,3 +11,12 @@
 
 ATTRIBUTE   OpenRadiusWeb-Realm         3001    string
 ATTRIBUTE   OpenRadiusWeb-Policy-Name   3002    string
+
+# Result marker set by site templates immediately before the orw module
+# call, so the python module can tell which post-auth branch invoked it
+# (regular `post-auth { }` = success, `Post-Auth-Type REJECT { }` = reject).
+# rlm_python3 doesn't expose Post-Auth-Type to Python, and trying to add
+# a second `python3 { }` instance to differentiate triggers a GIL-state
+# crash (PR #62 shipped that approach, PR #63 reverted it). This single
+# control attribute lets one orw instance handle both branches correctly.
+ATTRIBUTE   OpenRadiusWeb-Result        3003    string

@@ -165,8 +165,14 @@ server default {
 {% if has_python %}
         #
         # OpenRadiusWeb post-auth processing
-        # Assigns VLANs, ACLs, and logs authentication results
+        # Assigns VLANs, ACLs, and logs authentication results.
+        # Tag the request as the success branch so orw logs result=success
+        # in radius_auth_log. (Post-Auth-Type isn't visible to rlm_python3,
+        # see dictionary.openradiusweb for the full reason.)
         #
+        update request {
+            &OpenRadiusWeb-Result := "success"
+        }
         orw
 {% endif %}
 
@@ -176,9 +182,15 @@ server default {
         Post-Auth-Type REJECT {
 {% if has_python %}
             #
-            # OpenRadiusWeb rejection handling
-            # Logs failed authentication attempts
+            # OpenRadiusWeb rejection handling.
+            # Tag this branch as reject so orw logs result=reject in
+            # radius_auth_log. Without this marker, rlm_python3 has no
+            # way to tell success vs reject (Post-Auth-Type isn't passed
+            # to Python's request tuple).
             #
+            update request {
+                &OpenRadiusWeb-Result := "reject"
+            }
             orw
 {% endif %}
 
