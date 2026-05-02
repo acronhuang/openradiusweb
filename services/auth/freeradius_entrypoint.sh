@@ -85,11 +85,16 @@ fi
 # docker logs. Also enable auth logging so Login OK/incorrect events
 # are recorded. Both lost on container recreation but baked-in here
 # so they re-apply automatically on every start.
+#
+# auth_goodpass / auth_badpass MUST stay no — when on, every Auth: line
+# logs the cleartext password (`[user/PASSWORD]`). Stock Debian ships them
+# off; explicitly force off here in case a future Debian point release
+# flips the default.
 sed -i \
     -e 's|^\([[:space:]]*\)destination = files|\1destination = stdout|' \
     -e 's|^\([[:space:]]*\)auth = no|\1auth = yes|' \
-    -e 's|^\([[:space:]]*\)auth_badpass = no|\1auth_badpass = yes|' \
-    -e 's|^\([[:space:]]*\)auth_goodpass = no|\1auth_goodpass = yes|' \
+    -e 's|^\([[:space:]]*\)auth_badpass = yes|\1auth_badpass = no|' \
+    -e 's|^\([[:space:]]*\)auth_goodpass = yes|\1auth_goodpass = no|' \
     "$FR_CONF_DIR/radiusd.conf"
 
 # Permissions: cert manager writes server.key directly into certs/

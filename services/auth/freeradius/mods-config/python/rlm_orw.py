@@ -20,10 +20,44 @@ Config in mods-available/python:
 
 import json
 import os
+import sys
+import sysconfig
 import time
 import traceback
 
 import radiusd  # FreeRADIUS built-in module
+
+
+def _ensure_site_packages():
+    """Inject pip- and apt-installed package paths into sys.path.
+
+    rlm_python3 starts the embedded interpreter without running site.main(),
+    so the standard `dist-packages` / `site-packages` directories are NOT on
+    sys.path by default. Result: `import psycopg2` fails silently and
+    HAS_DB stays False, so every auth event drops on the floor instead of
+    landing in radius_auth_log. (See PR #58 commit message for the full
+    debug trail; symptom is an empty radius_auth_log table while
+    freeradius logs show "Login OK".)
+
+    Inject Debian-style `dist-packages` (both pip's /usr/local and apt's
+    /usr/lib trees), plus whatever sysconfig reports for this interpreter.
+    Detect Python version dynamically so this keeps working when Debian
+    bumps the base from 3.11 → 3.12.
+    """
+    pyver = "{}.{}".format(sys.version_info.major, sys.version_info.minor)
+    candidates = [
+        "/usr/local/lib/python{}/dist-packages".format(pyver),
+        "/usr/lib/python{}/dist-packages".format(pyver),
+        "/usr/lib/python3/dist-packages",
+        sysconfig.get_path("purelib"),
+        sysconfig.get_path("platlib"),
+    ]
+    for path in candidates:
+        if path and path not in sys.path:
+            sys.path.insert(0, path)
+
+
+_ensure_site_packages()
 
 # Try to import database libraries (fail gracefully if not available during testing)
 try:
@@ -51,7 +85,7 @@ except ImportError:
 # ============================================================
 DB_URL = os.environ.get("ORW_DB_URL", "")
 NATS_URL = os.environ.get("ORW_NATS_URL", "nats://localhost:4222")
-TENANT_ID = os.environ.get("ORW_TENANT_ID", None)  # Will be resolved on first call
+TENANT_ID = os.environ.get("ORW_TENANT_ID") or None  # docker compose passes "" (empty) when unset; "" fails UUID cast
 
 # AD Error Code to Failure Reason Mapping
 # These codes appear in LDAP/AD bind responses and MS-CHAP errors
