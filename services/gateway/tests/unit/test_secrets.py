@@ -100,28 +100,38 @@ def test_tampered_tag_raises_invalid_tag():
 
 
 # ---------------------------------------------------------------------------
-# Legacy-plaintext passthrough (migration window behaviour)
+# Strict mode: unrecognised input raises (no plaintext passthrough)
 # ---------------------------------------------------------------------------
+#
+# Phase 1 migration completed 2026-05-03 — every encrypted column on prod
+# is now real ciphertext, so the historical "return input unchanged on
+# unrecognised format" fallback was removed. Unrecognised input now means
+# the column was bypassed (bug); fail loudly so it surfaces.
 
 @pytest.mark.parametrize(
-    "legacy",
+    "garbage",
     [
         "MyOldPlaintextPassword!",
         "123456",
         "with spaces",
-        # Looks like base64 but doesn't have our version byte:
-        base64.urlsafe_b64encode(b"random bytes").decode("ascii"),
+        # Looks like base64 but the version byte is wrong:
+        base64.urlsafe_b64encode(bytes([0x99]) + b"\x00" * 28).decode("ascii"),
+        # Valid base64 but too short for a nonce + tag:
+        base64.urlsafe_b64encode(bytes([0x01, 0x02, 0x03])).decode("ascii"),
+        # Not base64 at all:
+        "this~has@invalid#chars",
     ],
 )
-def test_legacy_plaintext_returned_unchanged(legacy):
-    """Decrypt of an unrecognised string returns it as-is.
+def test_decrypt_unrecognised_input_raises(garbage):
+    with pytest.raises(ValueError):
+        decrypt_secret(garbage)
 
-    This is the migration-window safety net: rows that haven't been
-    re-encrypted yet keep working until the migration script runs.
-    Once migration is verified, this passthrough should be removed
-    (replaced with raising on unrecognised input).
-    """
-    assert decrypt_secret(legacy) == legacy
+
+def test_decrypt_empty_string_returns_empty():
+    """Empty string is treated as 'no value' — matches the historical
+    NULL/empty-column behaviour and avoids breaking callers that store
+    empty defaults. Real ciphertext can never be empty (min 29 bytes)."""
+    assert decrypt_secret("") == ""
 
 
 # ---------------------------------------------------------------------------
