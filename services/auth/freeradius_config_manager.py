@@ -564,7 +564,11 @@ class FreeRADIUSConfigManager:
             # (e.g. "10.0.0.0/24") in a single field — no separate prefix column.
             ip_addr = str(client["ip_address"])
             shortname = client.get("shortname") or client["name"][:31]
-            secret = client.get("secret_encrypted", "changeme")
+            # secret_encrypted is AES-256-GCM ciphertext post-PR #72.
+            # decrypt_secret() is a passthrough for legacy plaintext rows
+            # during the migration window; new rows go through the gateway
+            # repository which encrypts at write time.
+            secret = decrypt_secret(client.get("secret_encrypted")) or "changeme"
             nas_type = client.get("nas_type", "other")
             description = client.get("description", "")
 
