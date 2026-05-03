@@ -175,3 +175,41 @@ jobs:
 
       - name: Run freeradius -CX template tests
         run: python -m pytest services/auth/tests/integration/ -v --tb=short
+
+  frontend-build:
+    # Catches PRs that pass all backend CI but break the frontend build —
+    # specifically the PR #60 / #61 class where a vite major bump's peer
+    # deps don't satisfy npm ci's strict mode. Without this job, that PR
+    # would have shown 6/6 ✓ and merged with a broken `npm run build`.
+    name: Frontend build (npm ci + vite build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci (strict — catches peer-dep ERESOLVE)
+        # Use plain `npm ci`, NOT `npm install --legacy-peer-deps`.
+        # If a PR's lockfile resolves but its peer deps don't agree,
+        # `npm ci` fails and we want CI to fail the same way prod does.
+        run: npm ci
+
+      - name: npm run build (vite production build)
+        run: npm run build
+
+      - name: npm audit (advisory — high+critical fail the job)
+        # Medium/low advisories don't block; high+critical do, so a
+        # vulnerable dep landing in main never goes unnoticed.
+        # `|| true` on the report line lets us print the full list
+        # before the gate. Suppression is via Dependabot dismissal,
+        # not by silencing this job.
+        run: |
+          npm audit --omit=dev || echo "audit returned non-zero — see above"
+          npm audit --omit=dev --audit-level=high

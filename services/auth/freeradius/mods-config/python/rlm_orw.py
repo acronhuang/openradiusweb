@@ -135,7 +135,19 @@ def _get_db():
             _db_conn.autocommit = True
         return _db_conn
     except Exception as e:
-        radiusd.radlog(radiusd.L_ERR, f"OpenRadiusWeb DB connection failed: {e}")
+        # Run str(e) through scrub_message in case the exception message
+        # itself embedded the DSN/URL (some psycopg2 builds do this).
+        # scrub_message is best-effort — strips passwords from any
+        # postgresql://user:pw@host pattern it finds anywhere in the text.
+        try:
+            from orw_common.db_url_safe import scrub_message
+            safe_msg = scrub_message(str(e))
+        except ImportError:
+            safe_msg = str(e)
+        radiusd.radlog(
+            radiusd.L_ERR,
+            f"OpenRadiusWeb DB connection failed: {safe_msg}",
+        )
         return None
 
 

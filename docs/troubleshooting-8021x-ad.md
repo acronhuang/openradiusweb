@@ -717,6 +717,95 @@ sudo docker logs --tail=20 orw-freeradius | grep "MAB request"
 
 ---
 
+## 11. `No Auth-Type found` 在 MAB 請求 — watcher 蓋掉 site config
+
+**症狀**
+
+MAB 請求進來，freeradius 拒絕：
+```
+Auth: Login incorrect (No Auth-Type found: rejecting the user via Post-Auth-Type = Reject):
+  [3C-13-5A-CC-21-21] (from client Fortigate-60C ...)
+```
+**且 freeradius log 完全沒有 `OpenRadiusWeb MAB request:` 字樣**（之前 MAB
+work 時一定有）。
+
+**根因**
+
+`freeradius_config_watcher` 容器跑 `freeradius_config_manager.py` 時，
+`_rlm_python3_available()` 檢查 `/usr/lib/freeradius/rlm_python3.so` 是否
+存在。**watcher 容器是 `python:3.11-slim`，根本沒裝 freeradius**，所以
+這個檢查回 False → `has_python=False` → site_default 渲染時跳過
+`{% if has_python %}orw{% endif %}` 整段 → 生出沒 orw 的 site →
+透過 shared volume 蓋掉 freeradius 容器原本正確的 site → MAB 沒 Auth-Type
+→ reject。
+
+freeradius 啟動時自己跑同一個 config_manager 是 OK 的（freeradius 容器
+有那個 .so 檔），所以 deploy 後第一次認證會通；但只要 watcher 後來被
+觸發（例如 DB 寫入觸發 NATS 事件），就會把好的 site 蓋掉。
+
+**驗證根因**
+
+```bash
+sudo docker exec orw-freeradius grep -c "^        orw$" /etc/freeradius/3.0/sites-enabled/default
+# 預期 3（authorize / post-auth / REJECT 三個 section）
+# 如果回 0，site 被 watcher 蓋成沒 orw 的版本了
+```
+
+```bash
+sudo docker exec orw-freeradius head -3 /etc/freeradius/3.0/sites-enabled/default
+# 看 generated_at 時間 — 如果是 watcher 重新生成的時間（不是 freeradius
+# 啟動時間）就確認是被覆蓋過
+```
+
+**修法（永久版 — PR #76）**
+
+加 `ORW_HAS_PYTHON3=true` env var override + `_rlm_python3_available()`
+honor 它。docker-compose.yml 的 `freeradius` 跟 `freeradius_config_watcher`
+兩個 service 都設這個 env var：
+
+```yaml
+environment:
+  - ORW_HAS_PYTHON3=true
+```
+
+確認 deploy 後：
+
+```bash
+sudo docker inspect orw-freeradius-config-watcher \
+    --format '{{range .Config.Env}}{{println .}}{{end}}' | grep ORW_HAS_PYTHON3
+# 預期: ORW_HAS_PYTHON3=true
+```
+
+**Hot-fix（如果還沒 redeploy）**
+
+```bash
+sudo docker exec orw-freeradius-config-watcher python3 -c "
+import re
+p = '/app/freeradius_config_manager.py'
+content = open(p).read()
+content = re.sub(
+    r'def _rlm_python3_available\(\) -> bool:.*?return any\(os\.path\.isfile\(p\) for p in candidate_paths\)',
+    'def _rlm_python3_available() -> bool:\n    return True',
+    content, flags=re.DOTALL,
+)
+open(p, 'w').write(content)
+"
+sudo docker restart orw-freeradius-config-watcher orw-freeradius
+```
+
+**為何今天才踩到（給 future-you 的教訓）**
+
+這個 bug 在 watcher 容器引入時就存在，但 watcher 只在 DB 改變時才被
+NATS 事件喚醒。在沒有 DB 寫入活動的時段，watcher 從不重新生成 config，
+freeradius 啟動時的 config 一直是對的。**2026-05-03 加密 migration
+寫入 nas_clients + certificates 表 → 觸發 watcher → 暴露 bug**。
+
+如果之後有任何 「watcher generates X，但 watcher 容器跟 freeradius 容器
+環境不一樣，X 因此錯了」的類似 bug，套用同樣的解法：在 watcher 容器設
+env var override，讓 watcher 知道目標 freeradius 的真實能力。
+
+---
+
 ## 已知未解問題
 
 ### `Failed to find attribute config:OpenRadiusWeb-Realm`
