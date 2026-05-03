@@ -35,11 +35,14 @@
 
 > 📷 截圖位置：[android-step1-ssid-list.png](images/wifi-setup/android-step1-ssid-list.png)
 
-### 第 2 步：填入 EAP 設定
+### 第 2 步：填入 EAP 設定（上半部分）
 
 點 SSID 之後跳出設定對話框：
 
 > 📷 截圖位置：[android-step2-eap-form.png](images/wifi-setup/android-step2-eap-form.png)
+>
+> 範例值：EAP 方法=TTLS、階段 2 驗證=PAP、CA 憑證=不驗證、
+> 隱私=使用裝置 MAC、身分=ming@mds.local、匿名身分=空白
 
 依序設定：
 
@@ -49,7 +52,14 @@
 4. **隱私**：往下滑找到 → 點開 → 選 `使用裝置 MAC`
 5. **身分**：填 `你的帳號@mds.local`（例如 `ming@mds.local`）
 6. **匿名身分**：留空
-7. **密碼**：填你的 AD 密碼
+
+### 第 2b 步：填密碼（往下滑）
+
+> 📷 截圖位置：[android-step2b-password.png](images/wifi-setup/android-step2b-password.png)
+
+7. **密碼**：往下滑找到 → 填你的 AD 密碼
+   - 第一次設定：直接輸入
+   - 修改既有 profile：欄位顯示「(未變更)」表示保留原密碼，要改就點開重打
 
 ### 第 3 步：連線
 
@@ -181,7 +191,55 @@ IT 會用這些資訊查 freeradius log 找原因。常見原因：
 
 ---
 
+## MAB_Auth SSID（給不打帳密的設備）
+
+公司另有一個 `MAB_Auth` SSID，給**印表機、IP 攝影機、IoT 感測器**等不能打
+帳密的設備。**員工手機/筆電請走 MDS-01，不要連這個**。
+
+### 工作原理
+
+`MAB_Auth` 是 **Open** SSID（無加密、無密碼），但只有 IT 預先白名單的
+**MAC 位址**才能拿到 IP。沒在白名單的設備可以掃到 SSID、可以 association，
+但會被 RADIUS 拒絕、上不了網。
+
+### IT 流程：把新設備加進白名單
+
+1. 取得設備真實 MAC（**不是隨機 MAC**）— 印在設備底部的標籤、或設備管理頁面
+2. 打開 `http://<openradiusweb-server>:8888` → 側邊選單 RADIUS → **MAB Devices** → Add Device
+3. 填：
+   - MAC Address: 設備真實 MAC（小寫 colon 格式，例如 `3c:13:5a:cc:21:21`）
+   - Name: 識別用名稱（例如 `Printer-Lobby` / `IPCam-MeetingRoom-3F`）
+   - Device Type: phone / printer / iot / camera
+   - Assigned VLAN: IoT 網段對應的 VLAN ID
+   - Enabled: ✓
+4. 設備重新掃 WiFi、連 `MAB_Auth` → 應該自動連上
+
+### 設備端設定（給配發設備的人）
+
+1. 設備的 WiFi → 連 `MAB_Auth` SSID
+2. 不會問密碼，連線後等待拿 IP
+3. **重要：手機/平板若用此 SSID，必須關閉「使用隨機 MAC」**，改用「使用裝置 MAC」
+   — 因為 IT 白名單的是真實 MAC，隨機 MAC 連不上
+
+### 連上後的截圖（範例）
+
+> 📷 截圖位置：[android-mab-connected.png](images/wifi-setup/android-mab-connected.png)
+>
+> 連上 MAB_Auth 後 Android 顯示：技術標準=第 4 代（WiFi 4）、安全性=無、
+> IP 設定=DHCP、隱私=使用裝置 MAC
+
+### 連不上常見原因
+
+| 症狀 | 原因 / 解法 |
+|------|------------|
+| 設備掃不到 `MAB_Auth` SSID | AP 沒廣播此 SSID — 通報 IT |
+| 看到 SSID 但連不上 / 拿不到 IP | MAC 沒在白名單，或設備用了隨機 MAC — 通報 IT 確認 |
+| 連上但無網路 | VLAN 設定錯（`assigned_vlan` 不是有 DHCP 的 VLAN）— 通報 IT |
+
+---
+
 ## 文件版本
 
+- v1.1 — 2026-05-03 加入 MAB_Auth section + 部分 Android 截圖
 - v1.0 — 2026-05-02 初版
 - 後續更新請至 [openradiusweb repo docs/](https://github.com/acronhuang/openradiusweb/tree/main/docs)
