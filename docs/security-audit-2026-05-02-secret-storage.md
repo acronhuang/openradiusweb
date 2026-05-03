@@ -23,35 +23,56 @@ exposes every backend secret.
 | Column | Status | PR |
 |---|---|---|
 | `ldap_servers.bind_password_encrypted` | ✅ Deployed + verified end-to-end on production | #71 |
-| `radius_nas_clients.secret_encrypted` | ✅ Merged (deploy pending) | #73 |
-| `certificates.key_pem_encrypted` | ✅ Merged (deploy pending) | #74 |
-| `radius_realms.proxy_secret_encrypted` | ✅ Merged (deploy pending) | #74 |
-| `network_devices.snmp_community_encrypted` | ✅ Merged (deploy pending) | #74 |
-| `network_devices.coa_secret_encrypted` | ✅ Merged (deploy pending) | #74 |
+| `radius_nas_clients.secret_encrypted` | ✅ Deployed + verified end-to-end on production | #73 |
+| `certificates.key_pem_encrypted` | ✅ Deployed + verified end-to-end on production | #74 |
+| `radius_realms.proxy_secret_encrypted` | ✅ Deployed + verified end-to-end on production | #74 |
+| `network_devices.snmp_community_encrypted` | ✅ Deployed + verified end-to-end on production | #74 |
+| `network_devices.coa_secret_encrypted` | ✅ Deployed + verified end-to-end on production | #74 |
 
 **All 6 originally-flagged columns now have encrypt-on-write at the
 gateway boundary + decrypt-on-read at every consuming service.**
-LDAP bind password verified end-to-end against AD on
-2026-05-03 ("Login OK: ming@mds.local" with the row stored as
-ciphertext `Acw4nl87...` — see [session-2026-05-03 §Phase E](session-2026-05-03-encryption-rollout.md#phase-e--production-rollout-live-execution-log)
-for the live rollout log).
+End-to-end verified on 2026-05-03 with both auth paths working under
+strict-mode `decrypt_secret()`:
 
-**Production rollout for #73 + #74 pending** — when ready, follow the
-[cheatsheet](session-2026-05-03-encryption-rollout.md#appendix-production-rollout-cheatsheet-for-phase-1-prs-72-75)
-which covers build → recreate → migration → SQL verify → functional
-verify per consuming service.
+- 802.1X TTLS+PAP via LDAP: `Login OK: [ming@mds.local] via TLS tunnel`
+- MAB: `Login OK: [3C-13-5A-CC-21-21] from Fortigate-60C`
 
-**What's NOT yet done** (Phase 2 / future):
-- Vault or Cloud KMS — current scheme stores `ORW_SECRET_MASTER` in
-  `.env.production`; if `.env.production` leaks, the master + Argon2id
-  KDF cost is the only thing between the attacker and decrypting every
-  secret. Vault adds dynamic short-lived secrets + central audit log.
-- Backup encryption — `pg_dump` output is plaintext; encrypted DB
-  columns become useless if the dump itself leaks. Out of scope here
-  but worth queuing.
-- DB connection error log scrubbing — `psycopg2.connect()` exceptions
-  can include the connection URL with password. Wrap-and-mask before
-  log. Open issue: not yet a tracked PR.
+See [session-2026-05-03 §Phase E](session-2026-05-03-encryption-rollout.md#phase-e--production-rollout-live-execution-log)
+for the live rollout log.
+
+### Hardening PRs that closed latent bugs found during deploy
+
+| PR | What it fixed |
+|---|---|
+| #82 | Post-deploy verification runbook + pre-commit hook to block plaintext writes to `*_encrypted` columns |
+| #83 | Strict-mode `decrypt_secret()` — raises on unrecognised input instead of silent passthrough |
+| #84 | **Critical**: prod compose was missing `ORW_SECRET_MASTER` + `ORW_SECRET_KDF_SALT` on all 5 services that need them. PR #83 strict mode exposed this within minutes of deploy — the encryption had effectively been a no-op in prod since #71-#74. Test extended to cover both dev + prod compose files |
+| #85 | Dev/prod compose service name parity (`coa` → `coa_service`) |
+| #86 | Key rotation runbook + `scripts/rotate_secret_master.py` |
+| #87 | Watcher SIGHUP storm — `next_msg()` timeout bug + missing idempotency guard + non-deterministic templates |
+| #88 | `tenant_id NULL` defeats `ON CONFLICT` UPSERT — idempotency guard from #87 wasn't actually working at the DB level. Cleanup script removed ~945k bloat rows |
+
+### What's done elsewhere (no longer pending)
+
+- **Backup encryption** — PR #81 added `gpg --symmetric AES-256` for
+  every `scripts/backup.sh` output via `ORW_BACKUP_PASSPHRASE`.
+- **DB connection error log scrubbing** — PR #77 added
+  `shared/orw_common/db_url_safe.py` (`mask_db_url`, `format_db_error`,
+  `scrub_message`); migration scripts use it on connect failure.
+
+### Still pending (Phase 2 / future)
+
+- **Vault or Cloud KMS** — current scheme stores `ORW_SECRET_MASTER`
+  in `.env.production`; if `.env.production` leaks, the master +
+  Argon2id KDF cost is the only thing between the attacker and
+  decrypting every secret. Vault adds dynamic short-lived secrets +
+  central audit log + zero-downtime rotation.
+- **Watcher idempotency residual (Bug D + E)** — `certificates`
+  always counts as `applied` (no hash check on disk-only writes), and
+  `clients.conf.j2` + `proxy.conf.j2` render non-deterministically
+  with real DB data (likely missing `ORDER BY`). Net effect: every
+  5-min periodic reconcile triggers ONE SIGHUP even when no DB
+  mutation. No auth impact; safe to defer to a separate PR.
 
 ---
 
