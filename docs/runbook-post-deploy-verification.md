@@ -93,17 +93,23 @@ signal` every few seconds.
 
 ```bash
 # Steady-state HUP rate sanity check — over a 5-minute window
-# without any UI mutations, expect 1 HUP (one periodic reconcile).
-# Pre-PR-#87 this was hundreds.
+# without any UI mutations, expect 0 HUPs.
+#   Pre-PR-#87:        ~hundreds (every-second SIGHUP storm)
+#   PR #87 + #88:       1 (one per periodic reconcile)
+#   PR #90 (current):   0 (cert files + inline-built configs now
+#                          properly hash-skipped)
 docker logs --since 5m orw-freeradius 2>&1 | grep -c 'Received HUP signal'
 ```
 
-**Known residual (Bug D + E, non-blocking)**: the steady-state count
-is `1` per 5 min instead of `0` because `certificates` always counts
-as `applied` and `clients.conf.j2` / `proxy.conf.j2` render
-non-deterministically with real DB data. Acceptable; tracked for a
-future PR. See `docs/security-audit-2026-05-02-secret-storage.md`
-"Still pending" section.
+If the count is non-zero in steady state (no UI mutations in the
+window), the watcher is rendering something whose hash differs from
+the stored hash. The first place to look is
+`services/auth/freeradius_config_manager.py` — any generator that
+embeds a timestamp / random / unsorted-iteration in its output
+defeats the idempotency guard. The unit tests under
+`services/auth/tests/unit/test_inline_render_determinism.py` and
+`test_template_determinism.py` are the pattern to follow when adding
+a new generator.
 
 ---
 

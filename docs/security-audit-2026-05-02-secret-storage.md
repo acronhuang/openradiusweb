@@ -49,8 +49,9 @@ for the live rollout log.
 | #84 | **Critical**: prod compose was missing `ORW_SECRET_MASTER` + `ORW_SECRET_KDF_SALT` on all 5 services that need them. PR #83 strict mode exposed this within minutes of deploy — the encryption had effectively been a no-op in prod since #71-#74. Test extended to cover both dev + prod compose files |
 | #85 | Dev/prod compose service name parity (`coa` → `coa_service`) |
 | #86 | Key rotation runbook + `scripts/rotate_secret_master.py` |
-| #87 | Watcher SIGHUP storm — `next_msg()` timeout bug + missing idempotency guard + non-deterministic templates |
+| #87 | Watcher SIGHUP storm — `next_msg()` timeout bug + missing idempotency guard + non-deterministic Jinja templates |
 | #88 | `tenant_id NULL` defeats `ON CONFLICT` UPSERT — idempotency guard from #87 wasn't actually working at the DB level. Cleanup script removed ~945k bloat rows |
+| #90 | Residual SIGHUP — Bug D (cert files always status=applied; needed input hash) + Bug E (`generate_clients_config` and `generate_proxy_config` are inline string-builders, not Jinja, and still embedded `# Generated at: <now>`). Steady-state HUP rate now **0** per 5 min |
 
 ### What's done elsewhere (no longer pending)
 
@@ -67,12 +68,8 @@ for the live rollout log.
   Argon2id KDF cost is the only thing between the attacker and
   decrypting every secret. Vault adds dynamic short-lived secrets +
   central audit log + zero-downtime rotation.
-- **Watcher idempotency residual (Bug D + E)** — `certificates`
-  always counts as `applied` (no hash check on disk-only writes), and
-  `clients.conf.j2` + `proxy.conf.j2` render non-deterministically
-  with real DB data (likely missing `ORDER BY`). Net effect: every
-  5-min periodic reconcile triggers ONE SIGHUP even when no DB
-  mutation. No auth impact; safe to defer to a separate PR.
+- **TLS server cert auto-rotation** — currently manual via the UI.
+  Build a cron + watcher loop that triggers renewal before expiry.
 
 ---
 
