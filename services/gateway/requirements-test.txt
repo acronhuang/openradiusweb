@@ -11,3 +11,9 @@ aiosqlite>=0.19
 # isn't available, so these deps only matter for full local/CI runs.
 testcontainers[postgres]>=4.0
 psycopg2-binary>=2.9
+# Used by tests/contracts/test_compose_env_vars.py to parse
+# docker-compose.yml and assert env-var presence on services that
+# import orw_common.secrets / freeradius_config_manager. Catches the
+# class of bug we hit on 2026-05-03 (silent runtime regression when
+# code adds an import without the matching env var in compose).
+pyyaml>=6.0
