@@ -32,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         freeradius freeradius-python3 freeradius-ldap \
         python3 python3-pip \
         python3-psycopg2 python3-jinja2 python3-cryptography python3-ldap3 \
+        python3-argon2 \
  && pip3 install --no-cache-dir --break-system-packages nats-py \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -79,6 +80,15 @@ RUN if ! grep -q "dictionary.openradiusweb" /etc/freeradius/3.0/dictionary; then
         echo '$INCLUDE dictionary.openradiusweb' \
             >> /etc/freeradius/3.0/dictionary; \
     fi
+
+# Copy shared orw_common module — needed for orw_common.secrets which
+# decrypts AES-256-GCM ciphertext (LDAP bind password etc.) stored in
+# the DB. Both freeradius_config_manager.py (build-time config gen) and
+# rlm_orw.py (runtime LDAP group lookup in the embedded interpreter)
+# import from it. Lives at /opt/orw/orw_common/ so /opt/orw must be on
+# PYTHONPATH for both consumers.
+COPY shared/orw_common/ /opt/orw/orw_common/
+ENV PYTHONPATH=/opt/orw:${PYTHONPATH}
 
 # Copy config manager and entrypoint
 COPY services/auth/freeradius_config_manager.py /opt/orw/

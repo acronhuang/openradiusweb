@@ -75,6 +75,12 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - NATS_URL=nats://nats:4222
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      # AES-256-GCM master + Argon2id salt for orw_common.secrets — used
+      # to encrypt LDAP bind passwords + future RADIUS shared secrets,
+      # TLS keys, etc. Both vars MUST be set before deploy or the gateway
+      # will RuntimeError on first secret read/write. See PR #70 audit doc.
+      - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
+      - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:
       postgres:
@@ -181,6 +187,12 @@ services:
       - ORW_DB_URL=postgresql://orw:${DB_PASSWORD}@postgres:5432/orw
       - ORW_NATS_URL=nats://nats:4222
       - ORW_TENANT_ID=${ORW_TENANT_ID:-}
+      # Same master + salt as the gateway — both decrypt the same DB
+      # rows. rlm_orw.py (runtime) and freeradius_config_manager.py
+      # (config gen at boot) both read the LDAP bind_password_encrypted
+      # column and need to decrypt it. See PR #70 / #71.
+      - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
+      - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
     volumes:
       - freeradius_config:/etc/freeradius/orw-managed
       - freeradius_certs:/etc/freeradius/certs
@@ -201,6 +213,11 @@ services:
       - NATS_URL=nats://nats:4222
       - FREERADIUS_CONTAINER=orw-freeradius
       - ORW_TEMPLATE_DIR=/app/templates
+      # Same master + salt as gateway + freeradius — config_watcher
+      # imports freeradius_config_manager which decrypts ldap_servers
+      # rows. PR #71.
+      - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
+      - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
     volumes:
       - freeradius_config:/etc/freeradius/orw-managed
       - freeradius_certs:/etc/freeradius/certs
