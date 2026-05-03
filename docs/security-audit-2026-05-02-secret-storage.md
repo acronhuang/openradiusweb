@@ -8,23 +8,40 @@ The naming is aspirational — no encryption layer exists in the codebase.
 This is misleading to future maintainers and DB admins, and any DB compromise
 exposes every backend secret.
 
-## Status of remediation (updated 2026-05-03)
+## Status of remediation (updated 2026-05-03 — Phase 1 COMPLETE in code)
 
 | Column | Status | PR |
 |---|---|---|
-| `ldap_servers.bind_password_encrypted` | ✅ **Encrypted in production** | #71 (merged + rolled out) |
-| `radius_nas_clients.secret_encrypted` | ⏳ Pending | #72 (planned) |
-| `certificates.key_pem_encrypted` | ⏳ Pending | #73 (planned) |
-| `radius_realms.proxy_secret_encrypted` | ⏳ Pending | #74 (planned) |
-| `network_devices.coa_secret_encrypted` | ⏳ Pending | #75 (planned) |
-| `network_devices.snmp_community_encrypted` | ⏳ Pending | #75 (planned) |
+| `ldap_servers.bind_password_encrypted` | ✅ Deployed + verified end-to-end on production | #71 |
+| `radius_nas_clients.secret_encrypted` | ✅ Merged (deploy pending) | #73 |
+| `certificates.key_pem_encrypted` | ✅ Merged (deploy pending) | #74 |
+| `radius_realms.proxy_secret_encrypted` | ✅ Merged (deploy pending) | #74 |
+| `network_devices.snmp_community_encrypted` | ✅ Merged (deploy pending) | #74 |
+| `network_devices.coa_secret_encrypted` | ✅ Merged (deploy pending) | #74 |
 
-**Foundation in place** (PR #70 merged): `shared/orw_common/secrets.py`
-ships `encrypt_secret()` / `decrypt_secret()` / `is_encrypted()` using
-AES-256-GCM with key derived from `ORW_SECRET_MASTER` + `ORW_SECRET_KDF_SALT`
-via Argon2id. Production env vars set in `.env.production` (escrow
-backups confirmed). Each remaining PR follows the [PR #71 production
-rollout pattern](session-2026-05-03-encryption-rollout.md#appendix-production-rollout-cheatsheet-for-phase-1-prs-72-75).
+**All 6 originally-flagged columns now have encrypt-on-write at the
+gateway boundary + decrypt-on-read at every consuming service.**
+LDAP bind password verified end-to-end against AD on
+2026-05-03 ("Login OK: ming@mds.local" with the row stored as
+ciphertext `Acw4nl87...` — see [session-2026-05-03 §Phase E](session-2026-05-03-encryption-rollout.md#phase-e--production-rollout-live-execution-log)
+for the live rollout log).
+
+**Production rollout for #73 + #74 pending** — when ready, follow the
+[cheatsheet](session-2026-05-03-encryption-rollout.md#appendix-production-rollout-cheatsheet-for-phase-1-prs-72-75)
+which covers build → recreate → migration → SQL verify → functional
+verify per consuming service.
+
+**What's NOT yet done** (Phase 2 / future):
+- Vault or Cloud KMS — current scheme stores `ORW_SECRET_MASTER` in
+  `.env.production`; if `.env.production` leaks, the master + Argon2id
+  KDF cost is the only thing between the attacker and decrypting every
+  secret. Vault adds dynamic short-lived secrets + central audit log.
+- Backup encryption — `pg_dump` output is plaintext; encrypted DB
+  columns become useless if the dump itself leaks. Out of scope here
+  but worth queuing.
+- DB connection error log scrubbing — `psycopg2.connect()` exceptions
+  can include the connection URL with password. Wrap-and-mask before
+  log. Open issue: not yet a tracked PR.
 
 ---
 
