@@ -21,3 +21,9 @@ pydantic-settings>=2.0
 # but the fallback was the only path running in prod until this dep was
 # added — every Test Connection click failed with "ldap3 not installed".
 ldap3>=2.9
+# Symmetric encryption for DB-stored secrets — utils/secrets.py uses
+# AES-256-GCM (cryptography) + Argon2id KDF (argon2-cffi). cryptography
+# is also pulled in transitively via python-jose[cryptography] above,
+# pinning explicitly here to make the dep visible to audit tools.
+cryptography>=42.0
+argon2-cffi>=23.1
