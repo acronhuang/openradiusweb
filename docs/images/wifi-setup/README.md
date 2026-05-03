@@ -25,8 +25,7 @@
 
 | 檔名 | 內容 |
 |------|------|
-| `windows-step1-add-network.png` | 「管理已知的網路 → 新增網路」對話框 |
-| `windows-step2-eap-settings.png` | EAP 方法選擇（TTLS）+ Phase 2（PAP） |
+| `windows-add-network.png` | 「新增網路」對話框 — Win 11 把所有欄位（網路名稱 / 安全性類型 / EAP 方法 / 驗證方法 / 識別碼）塞在同一個 form |
 
 ### macOS
 

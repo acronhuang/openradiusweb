@@ -107,16 +107,23 @@ iOS 預設用 PEAP，但收到 freeradius 的 EAP-TLS handshake 後會自動 fal
 
 ### 步驟
 
-1. **設定 → 網路與網際網路 → Wi-Fi → 管理已知的網路**
-2. **新增網路**：
-   - 網路名稱：`MDS-01`
-   - 安全類型：`WPA2-Enterprise AES`
-   - **EAP 方法**：`Microsoft: EAP-TTLS`（不是 PEAP）
-   - 內部驗證：`未加密的密碼 (PAP)`
-3. 連線 → 跳出輸入帳密視窗 → 帳號填 `你的帳號@mds.local` → 密碼
+Windows 11 把所有欄位塞在「**新增網路**」一個對話框裡 — 一次填完按
+「儲存」即可。
 
-> 📷 截圖位置：[windows-step1-add-network.png](images/wifi-setup/windows-step1-add-network.png)
-> 📷 截圖位置：[windows-step2-eap-settings.png](images/wifi-setup/windows-step2-eap-settings.png)
+1. **設定 → 網路與網際網路 → Wi-Fi → 管理已知的網路 → 新增網路**
+2. 在彈出的對話框依序填：
+   - **網路名稱**：`MDS-01`
+   - **安全性類型**：`WPA2-Enterprise AES`
+   - **EAP 方法**：`EAP-TTLS`（不是 PEAP）
+   - **驗證方法**：`未加密的密碼 (PAP)`（不是 MSCHAPv2）
+   - **您的私人識別碼**：`你的帳號@mds.local`（例：`ming@mds.local`）
+   - 受信任的伺服器：留空（公司 AD CS 簽的 cert，預設信任）
+3. 按「儲存」→ 系統自動連線，會問密碼時填 AD 密碼
+
+> 📷 截圖位置：[windows-add-network.png](images/wifi-setup/windows-add-network.png)
+>
+> Windows 11 「新增網路」對話框完整填寫範例 — 注意 EAP 方法是 `EAP-TTLS`、
+> 驗證方法是 `未加密的密碼 (PAP)`、識別碼是 `ming@mds.local`
 
 ### 進階：用 GPO 派送（IT 操作）
 
