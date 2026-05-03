@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orw_common.secrets import decrypt_secret, encrypt_secret
 from utils.safe_sql import build_safe_set_clause, REALM_UPDATE_COLUMNS
 
 
@@ -87,7 +88,11 @@ async def lookup_realm(
 async def lookup_proxy_state(
     db: AsyncSession, *, tenant_id: str, realm_id: UUID,
 ) -> Optional[Mapping[str, Any]]:
-    """Used by update validation to pre-check existing proxy_host + secret."""
+    """Used by update validation to pre-check existing proxy_host + secret.
+
+    `proxy_secret_encrypted` is decrypted before return — callers
+    (service.py update flow) compare it against the new value.
+    """
     result = await db.execute(
         text(
             "SELECT proxy_host, proxy_secret_encrypted FROM radius_realms "
@@ -95,7 +100,12 @@ async def lookup_proxy_state(
         ),
         {"id": str(realm_id), "tenant_id": tenant_id},
     )
-    return result.mappings().first()
+    row = result.mappings().first()
+    if row is None:
+        return None
+    out = dict(row)
+    out["proxy_secret_encrypted"] = decrypt_secret(out.get("proxy_secret_encrypted"))
+    return out
 
 
 async def lookup_realm_summary(
@@ -159,8 +169,10 @@ async def count_fallback_references(
 async def insert_realm(
     db: AsyncSession, *, tenant_id: str, fields: dict,
 ) -> Mapping[str, Any]:
+    """Insert a realm. `proxy_secret` (plaintext from API) is encrypted
+    via orw_common.secrets and stored as `proxy_secret_encrypted`."""
     payload = dict(fields)
-    payload["proxy_secret_encrypted"] = payload.pop("proxy_secret", None)
+    payload["proxy_secret_encrypted"] = encrypt_secret(payload.pop("proxy_secret", None))
     payload["tenant_id"] = tenant_id
     result = await db.execute(
         text(
@@ -190,7 +202,12 @@ async def insert_realm(
 async def update_realm(
     db: AsyncSession, *, tenant_id: str, realm_id: UUID, updates: dict,
 ) -> Optional[Mapping[str, Any]]:
-    """Partial update with `proxy_secret` → `proxy_secret_encrypted` mapping."""
+    """Partial update. `proxy_secret` (plaintext, when present) is
+    encrypted via orw_common.secrets before mapping to
+    `proxy_secret_encrypted` column."""
+    if updates.get("proxy_secret") is not None:
+        updates = dict(updates)
+        updates["proxy_secret"] = encrypt_secret(updates["proxy_secret"])
     set_clause, params = build_safe_set_clause(
         updates,
         REALM_UPDATE_COLUMNS,

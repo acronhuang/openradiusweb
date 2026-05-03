@@ -11,6 +11,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orw_common.secrets import decrypt_secret, encrypt_secret
+
 
 # Light projection — used by /list. Excludes the heavy PEM columns.
 _LIST_COLS = (
@@ -96,7 +98,12 @@ async def lookup_cert_summary(
 async def lookup_active_ca(
     db: AsyncSession, *, tenant_id: str,
 ) -> Optional[Mapping[str, Any]]:
-    """Returns pem_data + key_pem_encrypted for the active CA, or None."""
+    """Returns pem_data + decrypted key_pem for the active CA, or None.
+
+    The `key_pem_encrypted` key in the returned mapping holds the
+    decrypted PEM (despite the column name) — callers feed it directly
+    to cert tooling that expects PEM text.
+    """
     result = await db.execute(
         text(
             "SELECT pem_data, key_pem_encrypted FROM certificates "
@@ -105,12 +112,22 @@ async def lookup_active_ca(
         ),
         {"tenant_id": tenant_id},
     )
-    return result.mappings().first()
+    row = result.mappings().first()
+    if row is None:
+        return None
+    out = dict(row)
+    out["key_pem_encrypted"] = decrypt_secret(out.get("key_pem_encrypted"))
+    return out
 
 
 async def lookup_cert_for_download(
     db: AsyncSession, *, tenant_id: str, cert_id: UUID,
 ) -> Optional[Mapping[str, Any]]:
+    """Returns the full PEM bundle including decrypted private key.
+
+    `key_pem_encrypted` returned as decrypted PEM text (or None if no
+    key on the row, e.g. an imported chain-only cert).
+    """
     result = await db.execute(
         text(
             "SELECT name, cert_type, pem_data, key_pem_encrypted, chain_pem "
@@ -119,7 +136,12 @@ async def lookup_cert_for_download(
         ),
         {"id": str(cert_id), "tenant_id": tenant_id},
     )
-    return result.mappings().first()
+    row = result.mappings().first()
+    if row is None:
+        return None
+    out = dict(row)
+    out["key_pem_encrypted"] = decrypt_secret(out.get("key_pem_encrypted"))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +203,10 @@ async def insert_cert(
             "key_size": key_size,
             "subject_alt_names": list(subject_alt_names) if subject_alt_names else None,
             "pem_data": pem_data,
-            "key_pem_encrypted": key_pem_encrypted,
+            # Encrypt the private key PEM at this boundary — the param
+            # is named `key_pem_encrypted` upstream but receives plaintext
+            # from the cert generation / import code path.
+            "key_pem_encrypted": encrypt_secret(key_pem_encrypted),
             "chain_pem": chain_pem,
             "is_self_signed": is_self_signed,
             "imported": imported,
