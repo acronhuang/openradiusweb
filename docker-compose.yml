@@ -197,6 +197,13 @@ services:
       # column and need to decrypt it. See PR #70 / #71.
       - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
       - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
+      # Tells freeradius_config_manager._rlm_python3_available() to
+      # generate sites + mods that include the orw rlm_python3 module.
+      # This container actually has /usr/lib/freeradius/rlm_python3.so
+      # (Dockerfile.freeradius enforces it at build time) so the
+      # filesystem fallback would also work — set explicitly for parity
+      # with the watcher container which lacks the .so file.
+      - ORW_HAS_PYTHON3=true
     volumes:
       - freeradius_config:/etc/freeradius/orw-managed
       - freeradius_certs:/etc/freeradius/certs
@@ -222,6 +229,15 @@ services:
       # rows. PR #71.
       - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
       - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
+      # CRITICAL: this container is python:3.11-slim base, has NO
+      # /usr/lib/freeradius/rlm_python3.so. Without this env var,
+      # _rlm_python3_available() falls back to the filesystem check,
+      # returns False, and generates sites WITHOUT the orw module call.
+      # That broke MAB on production 2026-05-03 when migrations triggered
+      # a config regen here. The actual freeradius container DOES have
+      # rlm_python3 (Dockerfile.freeradius enforces at build), so the
+      # generated site SHOULD reference orw. Override accordingly.
+      - ORW_HAS_PYTHON3=true
     volumes:
       - freeradius_config:/etc/freeradius/orw-managed
       - freeradius_certs:/etc/freeradius/certs
