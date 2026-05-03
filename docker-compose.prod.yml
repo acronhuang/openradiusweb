@@ -104,6 +104,11 @@ services:
       - NATS_URL=nats://nats:4222
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # AES-256-GCM key material for at-rest secret columns. Without
+      # these the gateway throws on the first read of an encrypted
+      # column (LDAP bind password, NAS shared secret, cert key, etc.).
+      - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
+      - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
     depends_on:
       postgres:
         condition: service_healthy
@@ -169,6 +174,9 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - NATS_URL=nats://nats:4222
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # snmp_community / coa_secret columns are encrypted at rest.
+      - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
+      - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
     depends_on:
       postgres:
         condition: service_healthy
@@ -216,6 +224,14 @@ services:
       - ORW_DB_URL=postgresql://orw:${DB_PASSWORD}@postgres:5432/orw
       - ORW_NATS_URL=nats://nats:4222
       - ORW_TENANT_ID=${ORW_TENANT_ID:-}
+      # rlm_orw.py (LDAP / MAB lookup) decrypts bind_password_encrypted.
+      - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
+      - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
+      # Tells freeradius_config_manager to render sites with the orw
+      # python module wired into authorize/authenticate/post-auth (the
+      # filesystem detection of rlm_python3.so is unreliable inside the
+      # container — see PR #76 root cause analysis).
+      - ORW_HAS_PYTHON3=true
     volumes:
       - freeradius_config:/etc/freeradius/orw-managed
       - freeradius_certs:/etc/freeradius/certs
@@ -236,6 +252,15 @@ services:
       - NATS_URL=nats://nats:4222
       - FREERADIUS_CONTAINER=orw-freeradius
       - ORW_TEMPLATE_DIR=/app/templates
+      # The watcher decrypts cert keys / bind passwords / etc. when
+      # rendering freeradius config from the DB. Without these env vars
+      # every render throws "Missing env var(s)" and the rendered
+      # config falls back to an error stub (see config_manager.py).
+      - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
+      - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
+      # Same reason as the freeradius service — filesystem detection
+      # of rlm_python3.so doesn't work in this image.
+      - ORW_HAS_PYTHON3=true
     volumes:
       - freeradius_config:/etc/freeradius/orw-managed
       - freeradius_certs:/etc/freeradius/certs
@@ -265,6 +290,10 @@ services:
       - DATABASE_URL=postgresql+asyncpg://orw:${DB_PASSWORD}@postgres:5432/orw
       - NATS_URL=nats://nats:4222
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # network_devices.coa_secret_encrypted is decrypted before
+      # signing CoA / Disconnect-Request packets.
+      - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
+      - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
     depends_on:
       postgres:
         condition: service_healthy
