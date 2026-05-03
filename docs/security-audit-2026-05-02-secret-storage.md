@@ -8,6 +8,24 @@ The naming is aspirational — no encryption layer exists in the codebase.
 This is misleading to future maintainers and DB admins, and any DB compromise
 exposes every backend secret.
 
+## Status of remediation (updated 2026-05-03)
+
+| Column | Status | PR |
+|---|---|---|
+| `ldap_servers.bind_password_encrypted` | ✅ **Encrypted in production** | #71 (merged + rolled out) |
+| `radius_nas_clients.secret_encrypted` | ⏳ Pending | #72 (planned) |
+| `certificates.key_pem_encrypted` | ⏳ Pending | #73 (planned) |
+| `radius_realms.proxy_secret_encrypted` | ⏳ Pending | #74 (planned) |
+| `network_devices.coa_secret_encrypted` | ⏳ Pending | #75 (planned) |
+| `network_devices.snmp_community_encrypted` | ⏳ Pending | #75 (planned) |
+
+**Foundation in place** (PR #70 merged): `shared/orw_common/secrets.py`
+ships `encrypt_secret()` / `decrypt_secret()` / `is_encrypted()` using
+AES-256-GCM with key derived from `ORW_SECRET_MASTER` + `ORW_SECRET_KDF_SALT`
+via Argon2id. Production env vars set in `.env.production` (escrow
+backups confirmed). Each remaining PR follows the [PR #71 production
+rollout pattern](session-2026-05-03-encryption-rollout.md#appendix-production-rollout-cheatsheet-for-phase-1-prs-72-75).
+
 ---
 
 ## 1. Findings
