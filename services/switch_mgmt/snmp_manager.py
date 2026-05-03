@@ -112,8 +112,11 @@ class SNMPManager:
             )
             row = result.first()
             if row and row[0]:
-                # TODO: Decrypt via Vault
-                return row[0]
+                # snmp_community_encrypted is AES-256-GCM ciphertext post
+                # PR #74; decrypt_secret() falls back to passthrough on
+                # legacy plaintext rows during the migration window.
+                from orw_common.secrets import decrypt_secret
+                return decrypt_secret(row[0]) or "public"
         return "public"  # Fallback for dev
 
     async def _set_vlan_cisco(

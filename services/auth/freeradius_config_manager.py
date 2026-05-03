@@ -454,7 +454,10 @@ class FreeRADIUSConfigManager:
                 "    type = auth+acct",
                 f"    ipaddr = {realm['proxy_host']}",
                 f"    port = {realm.get('proxy_port', 1812)}",
-                f"    secret = {realm.get('proxy_secret_encrypted', 'changeme')}",
+                # proxy_secret_encrypted is AES-256-GCM ciphertext post-PR
+                # #74. decrypt_secret() is a passthrough for legacy plaintext
+                # rows during the migration window.
+                f"    secret = {decrypt_secret(realm.get('proxy_secret_encrypted')) or 'changeme'}",
                 "    response_window = 20",
                 f"    zombie_period = {realm.get('proxy_dead_time_seconds', 120)}",
                 f"    revive_interval = {realm.get('proxy_dead_time_seconds', 120)}",
@@ -735,8 +738,11 @@ class FreeRADIUSConfigManager:
                 self._write_file(
                     os.path.join(self.cert_dir, "server.pem"), pem_data
                 )
-                # Write server private key
-                key_pem = cert.get("key_pem_encrypted")
+                # Write server private key — decrypt the AES-256-GCM
+                # ciphertext from the certificates.key_pem_encrypted column
+                # (PR #74). decrypt_secret() is a passthrough for legacy
+                # plaintext rows during the migration window.
+                key_pem = decrypt_secret(cert.get("key_pem_encrypted"))
                 if key_pem:
                     self._write_file(
                         os.path.join(self.cert_dir, "server.key"),

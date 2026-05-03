@@ -15,6 +15,12 @@ dependencies = [
     "redis>=5.0",
     "nats-py>=2.6",
     "structlog>=23.2",
+    # AES-256-GCM + Argon2id KDF for orw_common.secrets, used by every
+    # service that touches an encrypted DB column (LDAP bind password,
+    # NAS shared secret, TLS keys, RADIUS proxy secrets, SNMP community,
+    # CoA secret). Without these, importing orw_common.secrets fails.
+    "cryptography>=42.0",
+    "argon2-cffi>=23.1",
 ]
 
 [tool.setuptools.packages.find]

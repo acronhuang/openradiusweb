@@ -746,8 +746,11 @@ class CoAManager:
             )
             row = result.first()
             if row and row[0]:
-                # TODO: Decrypt via Vault in production
-                return row[0]
+                # coa_secret_encrypted is AES-256-GCM ciphertext post
+                # PR #74; decrypt_secret() falls back to passthrough on
+                # legacy plaintext rows during the migration window.
+                from orw_common.secrets import decrypt_secret
+                return decrypt_secret(row[0]) or "default_coa_secret"
 
         log.warning("coa_secret_not_found", nas_ip=nas_ip)
         return "default_coa_secret"  # Fallback for dev

@@ -140,6 +140,10 @@ services:
       - DATABASE_URL=postgresql+asyncpg://orw:${DB_PASSWORD}@postgres:5432/orw
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - NATS_URL=nats://nats:4222
+      # snmp_manager.py decrypts network_devices.snmp_community_encrypted
+      # via orw_common.secrets when opening SNMP sessions. PR #74.
+      - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
+      - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     depends_on:
       postgres:

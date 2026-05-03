@@ -14,6 +14,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orw_common.secrets import encrypt_secret
+
 
 # ---------------------------------------------------------------------------
 # Network devices (switches/routers/APs)
@@ -124,7 +126,10 @@ async def insert_network_device(
             "device_type": device_type,
             "management_protocol": management_protocol,
             "snmp_version": snmp_version,
-            "snmp_community": snmp_community,  # TODO: encrypt via Vault
+            # snmp_community (request) → snmp_community_encrypted column.
+            # AES-256-GCM via orw_common.secrets — switch_mgmt decrypts when
+            # opening SNMP sessions. PR #74.
+            "snmp_community": encrypt_secret(snmp_community),
             "poll_interval": poll_interval_seconds,
             "tenant_id": tenant_id,
         },
