@@ -1,4 +1,4 @@
-"""Contract tests for docker-compose.yml service env var propagation.
+"""Contract tests for compose service env var propagation.
 
 This catches the bug class we hit on 2026-05-03:
 
@@ -6,18 +6,25 @@ This catches the bug class we hit on 2026-05-03:
     AND calls _rlm_python3_available()
   - Both behaviours depend on env vars being set in the container
   - Adding the import / function call in source code without the
-    matching env var entry in docker-compose.yml leads to silent
+    matching env var entry in the compose files leads to silent
     runtime regressions:
       * orw_common.secrets without ORW_SECRET_MASTER → RuntimeError
-        on startup → service crash-loops
+        on first decrypt call → "Missing env var(s)" stub config
       * _rlm_python3_available() without ORW_HAS_PYTHON3 → False
         in non-freeradius containers → site_default rendered without
         orw → MAB rejected with "No Auth-Type found"
 
 Both bugs cost real production debug time. This test rejects the
-regression at PR time by parsing docker-compose.yml + asserting the
+regression at PR time by parsing each compose file + asserting the
 required env vars on every service that imports the corresponding
 module.
+
+Covers BOTH `docker-compose.yml` (dev) AND `docker-compose.prod.yml`
+(the file used in production via `--env-file .env.production`). Prior
+to 2026-05-03 only the dev file was covered, and a long-standing
+omission of ORW_SECRET_* + ORW_HAS_PYTHON3 from the prod file went
+undetected until the strict-mode rollout (PR #83) made the watcher
+fail loudly.
 """
 from __future__ import annotations
 
@@ -27,7 +34,6 @@ import pytest
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_COMPOSE_PATH = _REPO_ROOT / "docker-compose.yml"
 
 
 # Lazy import — pyyaml might not be in services/gateway/requirements-test.txt.
@@ -35,12 +41,44 @@ _COMPOSE_PATH = _REPO_ROOT / "docker-compose.yml"
 yaml = pytest.importorskip("yaml")
 
 
-@pytest.fixture(scope="module")
-def compose() -> dict:
-    """Parsed docker-compose.yml as a dict."""
-    if not _COMPOSE_PATH.exists():
-        pytest.skip(f"docker-compose.yml not found at {_COMPOSE_PATH}")
-    with _COMPOSE_PATH.open("r", encoding="utf-8") as fh:
+# ---------------------------------------------------------------------------
+# Compose-file specific service-name mapping.
+#
+# The dev and prod compose files don't agree on every service name (notably
+# `coa` in dev vs `coa_service` in prod — a latent inconsistency tracked
+# separately). The test honours each file's actual names so the contract
+# check passes today while the rename is dealt with in its own PR.
+# ---------------------------------------------------------------------------
+
+_COMPOSE_FILES = {
+    "docker-compose.yml": {
+        "secrets_services": (
+            "gateway",
+            "freeradius",
+            "freeradius_config_watcher",
+            "switch_mgmt",
+            "coa",
+        ),
+        "python3_services": ("freeradius", "freeradius_config_watcher"),
+    },
+    "docker-compose.prod.yml": {
+        "secrets_services": (
+            "gateway",
+            "freeradius",
+            "freeradius_config_watcher",
+            "switch_mgmt",
+            "coa_service",
+        ),
+        "python3_services": ("freeradius", "freeradius_config_watcher"),
+    },
+}
+
+
+def _load(compose_file: str) -> dict:
+    path = _REPO_ROOT / compose_file
+    if not path.exists():
+        pytest.skip(f"{compose_file} not found at {path}")
+    with path.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 
@@ -65,32 +103,36 @@ def _service_env_keys(compose: dict, service: str) -> set[str]:
     return keys
 
 
+def _secrets_cases() -> list[tuple[str, str]]:
+    return [
+        (compose_file, service)
+        for compose_file, cfg in _COMPOSE_FILES.items()
+        for service in cfg["secrets_services"]
+    ]
+
+
+def _python3_cases() -> list[tuple[str, str]]:
+    return [
+        (compose_file, service)
+        for compose_file, cfg in _COMPOSE_FILES.items()
+        for service in cfg["python3_services"]
+    ]
+
+
 # ---------------------------------------------------------------------------
 # ORW_SECRET_MASTER + ORW_SECRET_KDF_SALT — required by orw_common.secrets
 # ---------------------------------------------------------------------------
 
-# Every service that imports orw_common.secrets (transitively or directly)
-# must have BOTH env vars set; without them, the module raises RuntimeError
-# at import time and the service crash-loops.
-_SECRETS_IMPORTING_SERVICES = [
-    "gateway",                        # PR #71 — direct import in repositories
-    "freeradius",                     # PR #71 — rlm_orw.py + freeradius_config_manager.py
-    "freeradius_config_watcher",      # PR #71 — imports freeradius_config_manager
-    "switch_mgmt",                    # PR #74 — snmp_manager.py decrypts community
-    "coa",                            # PR #74/#79 — coa_manager.py decrypts coa_secret
-]
-
-
-@pytest.mark.parametrize("service", _SECRETS_IMPORTING_SERVICES)
-def test_secrets_env_vars_present(compose, service):
+@pytest.mark.parametrize("compose_file,service", _secrets_cases())
+def test_secrets_env_vars_present(compose_file, service):
     """Every service that uses orw_common.secrets must have both env vars."""
+    compose = _load(compose_file)
     env = _service_env_keys(compose, service)
     missing = {"ORW_SECRET_MASTER", "ORW_SECRET_KDF_SALT"} - env
     assert not missing, (
-        f"docker-compose service '{service}' is missing env vars "
+        f"{compose_file}: service '{service}' is missing env vars "
         f"{missing} required by orw_common.secrets. Without these the "
-        f"module raises RuntimeError at import → service crash-loops. "
-        f"See PR #70/#71 for context."
+        f"module raises RuntimeError at first decrypt call. See PR #70/#71."
     )
 
 
@@ -98,26 +140,13 @@ def test_secrets_env_vars_present(compose, service):
 # ORW_HAS_PYTHON3 — required where freeradius_config_manager.py runs
 # ---------------------------------------------------------------------------
 
-# Containers that run freeradius_config_manager.py but DON'T have
-# /usr/lib/freeradius/rlm_python3.so on disk need this env var, or
-# _rlm_python3_available() returns False and they generate sites
-# WITHOUT the orw module call → MAB rejected as "No Auth-Type found".
-#
-# The freeradius container itself has the .so file (Dockerfile.freeradius
-# enforces it at build) but we set the env var on it too for parity
-# (explicit > implicit; PR #76).
-_HAS_PYTHON3_SERVICES = [
-    "freeradius",
-    "freeradius_config_watcher",
-]
-
-
-@pytest.mark.parametrize("service", _HAS_PYTHON3_SERVICES)
-def test_has_python3_env_var_present(compose, service):
+@pytest.mark.parametrize("compose_file,service", _python3_cases())
+def test_has_python3_env_var_present(compose_file, service):
     """freeradius + watcher must declare ORW_HAS_PYTHON3=true."""
+    compose = _load(compose_file)
     env = _service_env_keys(compose, service)
     assert "ORW_HAS_PYTHON3" in env, (
-        f"docker-compose service '{service}' is missing ORW_HAS_PYTHON3. "
+        f"{compose_file}: service '{service}' is missing ORW_HAS_PYTHON3. "
         f"Without it, freeradius_config_manager._rlm_python3_available() "
         f"falls back to filesystem check; in containers that lack "
         f"/usr/lib/freeradius/rlm_python3.so this returns False, sites "
@@ -127,11 +156,12 @@ def test_has_python3_env_var_present(compose, service):
 
 
 # ---------------------------------------------------------------------------
-# Sanity — the file we're parsing actually has services
+# Sanity — each compose file actually parses and has services
 # ---------------------------------------------------------------------------
 
-def test_compose_has_services(compose):
-    """Catch a malformed docker-compose.yml that parses to nothing useful."""
+@pytest.mark.parametrize("compose_file", list(_COMPOSE_FILES))
+def test_compose_has_services(compose_file):
+    compose = _load(compose_file)
     assert isinstance(compose, dict)
     assert "services" in compose
     assert len(compose["services"]) > 0
