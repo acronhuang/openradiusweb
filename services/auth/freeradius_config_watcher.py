@@ -147,17 +147,28 @@ def apply_and_reload(manager: FreeRADIUSConfigManager, reason: str = "") -> dict
 
         errors = [k for k, v in result.items() if v.get("status") == "error"]
         applied = [k for k, v in result.items() if v.get("status") == "applied"]
+        unchanged = [k for k, v in result.items() if v.get("status") == "unchanged"]
 
         if errors:
             print(
                 f"[config-watcher] Config applied with {len(errors)} error(s): "
                 f"{', '.join(errors)}"
             )
+        elif applied:
+            print(
+                f"[config-watcher] {len(applied)} config(s) changed, "
+                f"{len(unchanged)} unchanged."
+            )
         else:
-            print(f"[config-watcher] All {len(applied)} configs applied successfully.")
+            # All-unchanged path — common for periodic reconciliation when
+            # nothing has actually been edited since the last run.
+            print(f"[config-watcher] No changes ({len(unchanged)} configs already current).")
 
-        # Reload FreeRADIUS even if some configs had errors -- the configs
-        # that succeeded should still be picked up.
+        # Only SIGHUP when something actually changed. Skipping the
+        # signal on no-op reconciliations is what stops the spam log
+        # "Reloaded module attr_filter.access_reject" / "Received HUP
+        # signal" pile-up — every HUP reloads every module, so even a
+        # no-op SIGHUP costs CPU and noise.
         if applied:
             reload_ok = reload_freeradius()
             result["_reload"] = {
@@ -165,7 +176,10 @@ def apply_and_reload(manager: FreeRADIUSConfigManager, reason: str = "") -> dict
                 "error": None if reload_ok else "HUP signal failed",
             }
         else:
-            result["_reload"] = {"status": "skipped", "error": "No configs applied"}
+            result["_reload"] = {
+                "status": "skipped",
+                "error": "No configs changed" if unchanged else "No configs applied",
+            }
 
         return result
 
@@ -268,10 +282,16 @@ async def main():
 
     while not stop_event.is_set():
         try:
-            msg = await asyncio.wait_for(
-                sub.next_msg(),
-                timeout=RECONCILE_INTERVAL,
-            )
+            # Pass timeout to next_msg() directly. DO NOT wrap in
+            # asyncio.wait_for(sub.next_msg(), timeout=...) — that pattern
+            # is broken because nats.errors.TimeoutError IS-A builtin
+            # TimeoutError (Python 3.11+), so the inner default 1.0s
+            # timeout from next_msg() bubbles up and is caught as if it
+            # were the outer wait_for's timeout. Result: every iteration
+            # took ~1 sec instead of RECONCILE_INTERVAL, and we SIGHUP'd
+            # freeradius every second instead of every 5 min. Postmortem:
+            # https://github.com/acronhuang/openradiusweb/pull/87
+            msg = await sub.next_msg(timeout=RECONCILE_INTERVAL)
 
             # Process the message
             await msg.ack()
@@ -295,8 +315,11 @@ async def main():
             result = apply_and_reload(manager, reason=reason)
             _log_result_summary(result)
 
-        except asyncio.TimeoutError:
-            # No message received within RECONCILE_INTERVAL -- run reconciliation
+        except nats.errors.TimeoutError:
+            # No message arrived within RECONCILE_INTERVAL — run
+            # reconciliation. Catch the NATS-specific class explicitly so
+            # we don't also catch unrelated builtin TimeoutErrors that
+            # might leak from the apply pipeline.
             print(
                 f"[config-watcher] Periodic reconciliation "
                 f"({RECONCILE_INTERVAL}s elapsed)..."
