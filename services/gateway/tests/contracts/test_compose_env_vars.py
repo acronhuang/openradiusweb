@@ -42,36 +42,22 @@ yaml = pytest.importorskip("yaml")
 
 
 # ---------------------------------------------------------------------------
-# Compose-file specific service-name mapping.
-#
-# The dev and prod compose files don't agree on every service name (notably
-# `coa` in dev vs `coa_service` in prod — a latent inconsistency tracked
-# separately). The test honours each file's actual names so the contract
-# check passes today while the rename is dealt with in its own PR.
+# Service-name conventions: both compose files now agree on the same names
+# (PR #85 renamed dev `coa` → `coa_service` for parity with prod). If you
+# add a new compose file in the future, append it here with the same
+# service tuples — the parametrize unfolds the cross-product automatically.
 # ---------------------------------------------------------------------------
 
-_COMPOSE_FILES = {
-    "docker-compose.yml": {
-        "secrets_services": (
-            "gateway",
-            "freeradius",
-            "freeradius_config_watcher",
-            "switch_mgmt",
-            "coa",
-        ),
-        "python3_services": ("freeradius", "freeradius_config_watcher"),
-    },
-    "docker-compose.prod.yml": {
-        "secrets_services": (
-            "gateway",
-            "freeradius",
-            "freeradius_config_watcher",
-            "switch_mgmt",
-            "coa_service",
-        ),
-        "python3_services": ("freeradius", "freeradius_config_watcher"),
-    },
-}
+_COMPOSE_FILES = ("docker-compose.yml", "docker-compose.prod.yml")
+
+_SECRETS_SERVICES = (
+    "gateway",
+    "freeradius",
+    "freeradius_config_watcher",
+    "switch_mgmt",
+    "coa_service",
+)
+_PYTHON3_SERVICES = ("freeradius", "freeradius_config_watcher")
 
 
 def _load(compose_file: str) -> dict:
@@ -104,19 +90,11 @@ def _service_env_keys(compose: dict, service: str) -> set[str]:
 
 
 def _secrets_cases() -> list[tuple[str, str]]:
-    return [
-        (compose_file, service)
-        for compose_file, cfg in _COMPOSE_FILES.items()
-        for service in cfg["secrets_services"]
-    ]
+    return [(f, s) for f in _COMPOSE_FILES for s in _SECRETS_SERVICES]
 
 
 def _python3_cases() -> list[tuple[str, str]]:
-    return [
-        (compose_file, service)
-        for compose_file, cfg in _COMPOSE_FILES.items()
-        for service in cfg["python3_services"]
-    ]
+    return [(f, s) for f in _COMPOSE_FILES for s in _PYTHON3_SERVICES]
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +137,7 @@ def test_has_python3_env_var_present(compose_file, service):
 # Sanity — each compose file actually parses and has services
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("compose_file", list(_COMPOSE_FILES))
+@pytest.mark.parametrize("compose_file", _COMPOSE_FILES)
 def test_compose_has_services(compose_file):
     compose = _load(compose_file)
     assert isinstance(compose, dict)

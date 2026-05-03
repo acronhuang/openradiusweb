@@ -131,7 +131,7 @@ services:
     networks:
       - orw-net
 
-  coa:
+  coa_service:
     # CoA (Change of Authorization) service. Listens on NATS for
     # `orw.policy.action.coa` and `orw.policy.action.vlan_assign`,
     # then sends RFC 5176 Disconnect-Request / CoA-Request packets to
