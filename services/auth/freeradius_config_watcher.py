@@ -58,9 +58,45 @@ def reload_freeradius() -> bool:
     dropping active sessions. This is the safest way to apply config
     changes at runtime.
 
+    Implementation note: prefers the Python docker SDK (sends SIGHUP
+    via the container API directly) over `docker exec kill -HUP 1`.
+    The exec-based approach used to fail with `exit=127` because
+    `kill` isn't always on PATH inside the slim freeradius image —
+    debian:bookworm-slim drops some coreutils binaries. The API call
+    doesn't run anything inside the target container, just signals
+    the main process via Docker daemon.
+
+    Falls back to subprocess docker CLI if the SDK isn't installed
+    (older deploys without the PR #78 Dockerfile bump).
+
     Returns:
         True if the reload command succeeded, False otherwise.
     """
+    # Prefer SDK path — no binary lookup inside target container.
+    try:
+        import docker
+
+        client = docker.from_env()
+        container = client.containers.get(FREERADIUS_CONTAINER)
+        container.kill(signal="SIGHUP")
+        print(
+            f"[config-watcher] FreeRADIUS reloaded "
+            f"(SIGHUP via docker API to {FREERADIUS_CONTAINER})"
+        )
+        return True
+    except ImportError:
+        # SDK not installed (pre-#78 image). Fall through to subprocess.
+        pass
+    except Exception as e:
+        # Network / permission / container-not-found errors. Log and
+        # fall through — subprocess might still succeed via /proc/self/...
+        # if for some reason the SDK is broken.
+        print(
+            f"[config-watcher] docker SDK reload failed ({type(e).__name__}: "
+            f"{e}); falling back to subprocess docker CLI."
+        )
+
+    # Fallback: subprocess docker CLI (legacy path, pre-PR #78).
     try:
         subprocess.run(
             ["docker", "exec", FREERADIUS_CONTAINER, "kill", "-HUP", "1"],
@@ -69,7 +105,10 @@ def reload_freeradius() -> bool:
             text=True,
             timeout=10,
         )
-        print(f"[config-watcher] FreeRADIUS reloaded (HUP sent to {FREERADIUS_CONTAINER})")
+        print(
+            f"[config-watcher] FreeRADIUS reloaded "
+            f"(HUP via subprocess docker exec to {FREERADIUS_CONTAINER})"
+        )
         return True
     except subprocess.CalledProcessError as e:
         print(
@@ -82,8 +121,9 @@ def reload_freeradius() -> bool:
         return False
     except FileNotFoundError:
         print(
-            "[config-watcher] 'docker' command not found. "
-            "Ensure Docker CLI is available or set FREERADIUS_CONTAINER=''."
+            "[config-watcher] 'docker' command not found and SDK not "
+            "available. Ensure docker.io + python `docker` package are "
+            "installed, or set FREERADIUS_CONTAINER='' to disable reload."
         )
         return False
 
