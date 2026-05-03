@@ -77,6 +77,34 @@ the `kill` binary is missing from the freeradius image — PR #78
 switched to the Python docker SDK to avoid this). If you see `exit=127`,
 the watcher is running an older build; recreate it.
 
+## 3b. Watcher reconcile cadence is correct (~300s, not ~1s)
+
+```bash
+# After watcher has been running for >5 min:
+docker logs --timestamps orw-freeradius-config-watcher --tail 100 2>&1 \
+  | grep 'Periodic reconciliation'
+```
+
+Consecutive `Periodic reconciliation` entries must be ~300 seconds
+apart (the value of `RECONCILE_INTERVAL`). If they're seconds apart,
+PR #87's `next_msg(timeout=...)` fix isn't deployed — the watcher is
+busy-spinning. Symptom downstream: freeradius spam-logs `Received HUP
+signal` every few seconds.
+
+```bash
+# Steady-state HUP rate sanity check — over a 5-minute window
+# without any UI mutations, expect 1 HUP (one periodic reconcile).
+# Pre-PR-#87 this was hundreds.
+docker logs --since 5m orw-freeradius 2>&1 | grep -c 'Received HUP signal'
+```
+
+**Known residual (Bug D + E, non-blocking)**: the steady-state count
+is `1` per 5 min instead of `0` because `certificates` always counts
+as `applied` and `clients.conf.j2` / `proxy.conf.j2` render
+non-deterministically with real DB data. Acceptable; tracked for a
+future PR. See `docs/security-audit-2026-05-02-secret-storage.md`
+"Still pending" section.
+
 ---
 
 ## 4. Encryption env vars are present on every secrets-handling service
@@ -97,39 +125,80 @@ reject auth.
 
 ## 5. DB columns actually contain ciphertext, not plaintext
 
+Run from the postgres container directly (avoids needing `DB_PASSWORD`
+in env — postgres trusts local socket connections). One query covering
+all 6 columns; output is `column|total|nonnull|bad` per row, where
+`bad` counts non-null/non-empty values that don't have the
+ciphertext shape (length ≥ 28 chars + base64 prefix `A` = version
+byte 0x01).
+
 ```bash
-docker exec orw-freeradius python3 -c '
-import os, psycopg2
-conn = psycopg2.connect(
-    host="postgres", dbname="orw", user="orw",
-    password=os.environ["DB_PASSWORD"])
-cur = conn.cursor()
-checks = [
-    ("ldap_servers",    "bind_password_encrypted"),
-    ("radius_nas_clients", "secret_encrypted"),
-    ("ca_certificates", "key_pem_encrypted"),
-    ("server_certificates", "key_pem_encrypted"),
-    ("radius_realms",   "proxy_secret_encrypted"),
-    ("network_devices", "snmp_community_encrypted"),
-]
-for tbl, col in checks:
-    cur.execute(f"SELECT {col} FROM {tbl} WHERE {col} IS NOT NULL LIMIT 1")
-    row = cur.fetchone()
-    if not row:
-        print(f"{tbl}.{col}: (no rows)")
-        continue
-    val = row[0]
-    # Ciphertext is base64 of (1 version byte || 12 nonce || ciphertext).
-    # Min 29 chars after base64; current schema starts with "A" (version 0x01).
-    ok = len(val) >= 28 and val[0] == "A"
-    print(f"{tbl}.{col}: len={len(val)} prefix={val[:4]!r} {'OK' if ok else \"FAIL — looks like plaintext\"}")
-'
+docker exec orw-postgres psql -U orw -d orw -A -t -c "
+SELECT 'ldap_servers.bind_password_encrypted' AS col,
+       COUNT(*) AS total,
+       COUNT(bind_password_encrypted) AS nonnull,
+       COUNT(*) FILTER (WHERE bind_password_encrypted IS NOT NULL
+                          AND bind_password_encrypted <> ''
+                          AND (LENGTH(bind_password_encrypted) < 28
+                               OR LEFT(bind_password_encrypted,1) <> 'A')) AS bad
+FROM ldap_servers
+UNION ALL
+SELECT 'radius_nas_clients.secret_encrypted',
+       COUNT(*), COUNT(secret_encrypted),
+       COUNT(*) FILTER (WHERE secret_encrypted IS NOT NULL
+                          AND secret_encrypted <> ''
+                          AND (LENGTH(secret_encrypted) < 28
+                               OR LEFT(secret_encrypted,1) <> 'A'))
+FROM radius_nas_clients
+UNION ALL
+SELECT 'certificates.key_pem_encrypted',
+       COUNT(*), COUNT(key_pem_encrypted),
+       COUNT(*) FILTER (WHERE key_pem_encrypted IS NOT NULL
+                          AND key_pem_encrypted <> ''
+                          AND (LENGTH(key_pem_encrypted) < 28
+                               OR LEFT(key_pem_encrypted,1) <> 'A'))
+FROM certificates
+UNION ALL
+SELECT 'radius_realms.proxy_secret_encrypted',
+       COUNT(*), COUNT(proxy_secret_encrypted),
+       COUNT(*) FILTER (WHERE proxy_secret_encrypted IS NOT NULL
+                          AND proxy_secret_encrypted <> ''
+                          AND (LENGTH(proxy_secret_encrypted) < 28
+                               OR LEFT(proxy_secret_encrypted,1) <> 'A'))
+FROM radius_realms
+UNION ALL
+SELECT 'network_devices.snmp_community_encrypted',
+       COUNT(*), COUNT(snmp_community_encrypted),
+       COUNT(*) FILTER (WHERE snmp_community_encrypted IS NOT NULL
+                          AND snmp_community_encrypted <> ''
+                          AND (LENGTH(snmp_community_encrypted) < 28
+                               OR LEFT(snmp_community_encrypted,1) <> 'A'))
+FROM network_devices
+UNION ALL
+SELECT 'network_devices.coa_secret_encrypted',
+       COUNT(*), COUNT(coa_secret_encrypted),
+       COUNT(*) FILTER (WHERE coa_secret_encrypted IS NOT NULL
+                          AND coa_secret_encrypted <> ''
+                          AND (LENGTH(coa_secret_encrypted) < 28
+                               OR LEFT(coa_secret_encrypted,1) <> 'A'))
+FROM network_devices;
+"
 ```
 
-Any `FAIL — looks like plaintext` means the migration script wasn't
-run, or it ran with the wrong key and you have unrecoverable data.
+Every row's `bad` count must be `0`. Any non-zero means a row contains
+plaintext (or wrong-version ciphertext) — the migration script wasn't
+run, or it ran with the wrong key, or someone bypassed `encrypt_secret()`
+when writing. With strict-mode `decrypt_secret()` (PR #83), gateway /
+freeradius will throw `ValueError` on first read of a bad row.
+
 Check `docs/session-2026-05-03-encryption-rollout.md` for the rollback
-procedure.
+procedure if recovery is needed.
+
+> Earlier versions of this runbook used `ca_certificates` and
+> `server_certificates` as table names. Those don't exist — the schema
+> uses one `certificates` table with a `cert_type` discriminator
+> (`'ca'` or `'server'`). Verify with
+> `\d` in psql or `\dt` to list tables if you're unsure.
 
 ---
 
