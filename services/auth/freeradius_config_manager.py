@@ -926,22 +926,78 @@ class FreeRADIUSConfigManager:
         """SHA-256 hash of content."""
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
-    def _get_stored_hash(
-        self, config_type: str, config_name: str,
-    ) -> Optional[str]:
-        """Look up the last-applied hash for a (type, name) pair, or None
-        if we've never written this config before. Used by apply_configs
-        to skip unchanged files instead of forcing a SIGHUP for nothing.
+    # Process-cached UUID of the 'default' tenant. The watcher generates
+    # one global config (no per-tenant variation) and tags every row with
+    # this UUID so the unique constraint actually triggers on the second
+    # write. Pre-PR-#88 we left tenant_id NULL, but PostgreSQL treats
+    # NULL != NULL in unique indexes, so ON CONFLICT never matched and
+    # every reconcile inserted a new row — the table grew to ~945k rows
+    # over a few hours during the SIGHUP storm. See PR #88.
+    _default_tenant_id: Optional[str] = None
+
+    def _get_default_tenant_id(self) -> Optional[str]:
+        """Resolve and cache the 'default' tenant UUID.
+
+        Returns None if the lookup fails so callers can still proceed
+        (with the historical NULL-tenant_id behaviour) rather than
+        crashing the apply pipeline. The 'default' tenant is seeded by
+        migrations/002_settings_radius_features.sql and is expected to
+        always exist; a None here is a deployment problem, not a
+        runtime expectation.
         """
+        if self._default_tenant_id is not None:
+            return self._default_tenant_id
         conn = self._get_conn()
         try:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT last_applied_hash FROM freeradius_config "
-                    "WHERE config_type = %s AND config_name = %s "
-                    "LIMIT 1",
-                    (config_type, config_name),
-                )
+                cur.execute("SELECT id FROM tenants WHERE name = 'default' LIMIT 1")
+                row = cur.fetchone()
+                if row is None:
+                    print(
+                        "[config-manager] WARN: 'default' tenant not found in "
+                        "tenants table — falling back to NULL tenant_id (idempotency "
+                        "guard will not work). Check migrations/002."
+                    )
+                    return None
+                self._default_tenant_id = str(row[0])
+                return self._default_tenant_id
+        except Exception as e:
+            print(f"[config-manager] WARN: cannot resolve default tenant id: {e}")
+            return None
+        finally:
+            conn.close()
+
+    def _get_stored_hash(
+        self, config_type: str, config_name: str,
+    ) -> Optional[str]:
+        """Look up the last-applied hash for a (type, name) pair under the
+        default tenant, or None if we've never written this config before.
+
+        Filters by the default tenant id to match _save_config_state's
+        write key — without the filter we might pick up a stale NULL-
+        tenant row left from before PR #88 and skip a real write.
+        """
+        tenant_id = self._get_default_tenant_id()
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                if tenant_id is None:
+                    # Pre-PR-#88 fallback path: no default tenant available.
+                    # Match the same NULL-tenant filter _save_config_state
+                    # would write so we stay self-consistent.
+                    cur.execute(
+                        "SELECT last_applied_hash FROM freeradius_config "
+                        "WHERE config_type = %s AND config_name = %s "
+                        "AND tenant_id IS NULL LIMIT 1",
+                        (config_type, config_name),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT last_applied_hash FROM freeradius_config "
+                        "WHERE config_type = %s AND config_name = %s "
+                        "AND tenant_id = %s LIMIT 1",
+                        (config_type, config_name, tenant_id),
+                    )
                 row = cur.fetchone()
                 if row is None:
                     return None
@@ -961,7 +1017,13 @@ class FreeRADIUSConfigManager:
         status: str,
         error: Optional[str] = None,
     ) -> None:
-        """Upsert freeradius_config table with current config state."""
+        """Upsert freeradius_config table with current config state.
+
+        Writes tenant_id = the resolved 'default' tenant UUID so the
+        unique constraint (config_type, config_name, tenant_id) actually
+        deduplicates. See _get_default_tenant_id for the rationale.
+        """
+        tenant_id = self._get_default_tenant_id()
         conn = self._get_conn()
         try:
             with conn.cursor() as cur:
@@ -969,10 +1031,12 @@ class FreeRADIUSConfigManager:
                     """
                     INSERT INTO freeradius_config
                         (config_type, config_name, config_content, config_hash,
-                         last_applied_at, last_applied_hash, status, error_message)
+                         last_applied_at, last_applied_hash, status, error_message,
+                         tenant_id)
                     VALUES
                         (%(config_type)s, %(config_name)s, %(content)s, %(hash)s,
-                         NOW(), %(hash)s, %(status)s, %(error)s)
+                         NOW(), %(hash)s, %(status)s, %(error)s,
+                         %(tenant_id)s)
                     ON CONFLICT (config_type, config_name, tenant_id)
                     DO UPDATE SET
                         config_content = EXCLUDED.config_content,
@@ -990,6 +1054,7 @@ class FreeRADIUSConfigManager:
                         "hash": config_hash,
                         "status": status,
                         "error": error,
+                        "tenant_id": tenant_id,
                     },
                 )
             conn.commit()
