@@ -12,6 +12,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orw_common.secrets import encrypt_secret
 from utils.safe_sql import build_safe_set_clause, NAS_CLIENT_UPDATE_COLUMNS
 
 
@@ -93,7 +94,11 @@ async def insert_nas_client(
         {
             "name": name,
             "ip_address": ip_address,
-            "shared_secret": shared_secret,
+            # `shared_secret` (request field) → `secret_encrypted` column,
+            # AES-256-GCM via orw_common.secrets. The plaintext never lands
+            # on disk — gateway encrypts at this boundary, freeradius
+            # decrypts when generating clients.conf.
+            "shared_secret": encrypt_secret(shared_secret),
             "shortname": shortname or name[:31],
             "nas_type": nas_type,
             "description": description,
@@ -111,13 +116,18 @@ async def update_nas_client(
 ) -> Optional[Mapping[str, Any]]:
     """Partial update with one SQL detail encapsulated:
 
-    - `shared_secret` (request field) → `secret_encrypted` (DB column)
+    - `shared_secret` (request field, plaintext) is encrypted via
+      orw_common.secrets and mapped to `secret_encrypted` (DB column)
 
     `ip_address` is VARCHAR(50) so no INET cast is needed.
 
     Returns the updated row, or None if (id, tenant) didn't match.
     Raises ValueError if `updates` contains no allowed columns.
     """
+    if updates.get("shared_secret") is not None:
+        # Copy so we don't mutate the caller's dict.
+        updates = dict(updates)
+        updates["shared_secret"] = encrypt_secret(updates["shared_secret"])
     set_clause, params = build_safe_set_clause(
         updates,
         NAS_CLIENT_UPDATE_COLUMNS,
