@@ -445,11 +445,13 @@ class FreeRADIUSConfigManager:
         Configures home servers and realm routing for proxy-type realms.
         """
         realms = self._load_realms()
-        now = datetime.now(timezone.utc).isoformat()
 
+        # No `# Generated at: <timestamp>` header — it would defeat the
+        # hash-based idempotency guard in apply_configs (cf. PR #87 +
+        # PR #88). The `freeradius_config.last_applied_at` column already
+        # records the same information.
         lines = [
             "# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY",
-            f"# Generated at: {now}",
             "#",
             "# Proxy configuration",
             "# Template: proxy.conf (inline)",
@@ -558,11 +560,11 @@ class FreeRADIUSConfigManager:
         Each NAS client gets a client block with its IP, secret, and shortname.
         """
         clients = self._load_nas_clients()
-        now = datetime.now(timezone.utc).isoformat()
 
+        # No `# Generated at: <timestamp>` header — see generate_proxy_config
+        # for the rationale (defeats the apply_configs idempotency guard).
         lines = [
             "# OpenRadiusWeb Generated Configuration - DO NOT EDIT MANUALLY",
-            f"# Generated at: {now}",
             "#",
             "# RADIUS client (NAS) configuration",
             "",
@@ -819,10 +821,30 @@ class FreeRADIUSConfigManager:
         """
         results: dict[str, dict] = {}
 
-        # Step 1: Write certificates to filesystem
+        # Step 1: Write certificates to filesystem (hash-skipped if unchanged).
+        # Pre-PR-#90 cert files were ALWAYS rewritten + status="applied",
+        # which made the watcher SIGHUP every reconcile even when nothing
+        # changed. Hash the inputs (active certs + LDAP server CA bundles)
+        # and skip when they match the last applied hash.
         try:
-            self.write_cert_files()
-            results["certificates"] = {"status": "applied", "hash": "", "error": None}
+            cert_hash = self._compute_cert_files_hash()
+            stored_cert_hash = self._get_stored_hash("certificates", "_cert_files")
+            if stored_cert_hash == cert_hash:
+                results["certificates"] = {
+                    "status": "unchanged", "hash": cert_hash, "error": None,
+                }
+            else:
+                self.write_cert_files()
+                self._save_config_state(
+                    config_type="certificates",
+                    config_name="_cert_files",
+                    content="",  # actual bytes are on disk; tracker only needs hash
+                    config_hash=cert_hash,
+                    status="applied",
+                )
+                results["certificates"] = {
+                    "status": "applied", "hash": cert_hash, "error": None,
+                }
         except Exception as e:
             results["certificates"] = {
                 "status": "error",
@@ -925,6 +947,37 @@ class FreeRADIUSConfigManager:
     def _compute_hash(self, content: str) -> str:
         """SHA-256 hash of content."""
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def _compute_cert_files_hash(self) -> str:
+        """Hash the inputs that drive write_cert_files().
+
+        Inputs are: every active certificate row's pem_data, chain_pem,
+        key_pem_encrypted (the ciphertext column — same DB state always
+        returns the same stored bytes, so this is stable), dh_params_pem;
+        plus every LDAP server's tls_ca_cert.
+
+        Sort by stable composite key so dict ordering / DB query result
+        ordering can't change the hash. Hashing the encrypted column
+        (rather than decrypted plaintext) is deliberate — re-encryption
+        with a fresh nonce SHOULD trigger a write, even if the underlying
+        plaintext is unchanged, because we can't tell from the ciphertext
+        alone whether the plaintext changed.
+        """
+        certs = self._load_active_certificates()
+        ldap_servers = self._load_ldap_servers()
+
+        parts: list[str] = []
+        for cert in sorted(certs, key=lambda c: (c.get("cert_type", ""), c.get("name", ""))):
+            parts.append(f"cert:{cert.get('cert_type', '')}:{cert.get('name', '')}")
+            parts.append(cert.get("pem_data") or "")
+            parts.append(cert.get("chain_pem") or "")
+            parts.append(cert.get("key_pem_encrypted") or "")
+            parts.append(cert.get("dh_params_pem") or "")
+        for server in sorted(ldap_servers, key=lambda s: s.get("name", "")):
+            parts.append(f"ldap_ca:{server.get('name', '')}")
+            parts.append(server.get("tls_ca_cert") or "")
+        blob = "\n---\n".join(parts)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
     # Process-cached UUID of the 'default' tenant. The watcher generates
     # one global config (no per-tenant variation) and tags every row with
