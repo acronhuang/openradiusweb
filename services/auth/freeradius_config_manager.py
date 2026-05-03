@@ -860,6 +860,22 @@ class FreeRADIUSConfigManager:
             else:
                 config_type = filename.replace("/", "_").replace(".", "_")
 
+            # Idempotency guard: skip the write + DB upsert when the
+            # generated content matches the last-applied hash. Without
+            # this every periodic reconciliation would force a SIGHUP
+            # even when nothing changed (cf. the 2026-05-03 SIGHUP storm
+            # post-mortem in PR #87). Templates that aren't deterministic
+            # would defeat this — see the corresponding "no timestamps
+            # in templates" rule.
+            stored_hash = self._get_stored_hash(config_type, filename)
+            if stored_hash == config_hash:
+                results[config_type] = {
+                    "status": "unchanged",
+                    "hash": config_hash,
+                    "error": None,
+                }
+                continue
+
             try:
                 output_path = os.path.join(self.output_dir, filename)
                 output_dir = os.path.dirname(output_path)
@@ -909,6 +925,32 @@ class FreeRADIUSConfigManager:
     def _compute_hash(self, content: str) -> str:
         """SHA-256 hash of content."""
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    def _get_stored_hash(
+        self, config_type: str, config_name: str,
+    ) -> Optional[str]:
+        """Look up the last-applied hash for a (type, name) pair, or None
+        if we've never written this config before. Used by apply_configs
+        to skip unchanged files instead of forcing a SIGHUP for nothing.
+        """
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT last_applied_hash FROM freeradius_config "
+                    "WHERE config_type = %s AND config_name = %s "
+                    "LIMIT 1",
+                    (config_type, config_name),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return None
+                return row[0]
+        except Exception as e:
+            print(f"[config-manager] WARN reading stored hash for {config_type}: {e}")
+            return None
+        finally:
+            conn.close()
 
     def _save_config_state(
         self,
