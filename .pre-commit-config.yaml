@@ -50,3 +50,13 @@ repos:
         pass_filenames: false
         # Only run when the routes directory changes — fast on unrelated commits.
         files: '^services/gateway/(routes/|features/auth/__init__\.py|main\.py)|^scripts/check_no_new_routes\.py$'
+
+      # Block plaintext writes to *_encrypted columns. Triggered when any
+      # Python file under services/, scripts/, or shared/ changes — the
+      # script itself filters to files that actually contain SQL writes.
+      - id: encrypted-columns-wrapped
+        name: '*_encrypted columns must be wrapped with encrypt_secret()'
+        entry: python scripts/check_encrypted_columns_wrapped.py
+        language: system
+        types: [python]
+        files: '^(services/|scripts/|shared/).*\.py$'
