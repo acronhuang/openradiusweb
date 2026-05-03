@@ -33,19 +33,42 @@ from orw_common.secrets import decrypt_secret
 # ============================================================
 
 def _rlm_python3_available() -> bool:
-    """Return True iff this freeradius install has rlm_python3 compiled in.
+    """Return True iff the *target* freeradius install has rlm_python3.
 
-    Without rlm_python3, declaring `python3 orw {…}` in any module/site
-    config makes radiusd refuse to start with "Failed to find python3
-    module" — the classic restart-loop trigger.
+    The "target" wording matters: this script runs in TWO containers
+    (freeradius itself, and freeradius_config_watcher) but only generates
+    config FOR freeradius. The watcher container is python:3.11-slim and
+    does NOT have /usr/lib/freeradius/rlm_python3.so — but the freeradius
+    container does, and that's the one whose capabilities matter.
 
-    Detection is by .so presence, not `radiusd -v`: the latter never
-    actually lists compiled-in modules, so the prior check (PR #37)
-    returned False on every supported image even when rlm_python3 was
-    present. Filesystem check works regardless of which freeradius
-    package layout the base image uses (Debian apt = /usr/lib/freeradius/,
-    upstream containers = /usr/lib/x86_64-linux-gnu/freeradius/).
+    The previous filesystem-only check (PR #37, then PR #49 that fixed
+    its detection logic) returned False when run inside the watcher,
+    making it generate sites WITHOUT the orw module call. That broke MAB
+    on production 2026-05-03 the moment the encryption migrations triggered
+    a NATS-driven config regeneration in the watcher. (Site_default got
+    overwritten via the shared volume, freeradius reloaded the orw-less
+    version, MAB requests started failing with "No Auth-Type found".)
+
+    Resolution: env var override, default True. Dockerfile.freeradius
+    enforces rlm_python3.so presence at build time (`RUN test -f ... ||
+    exit 1`), so True is the correct default for any OpenRadiusWeb
+    deployment. The env var lets test/CI environments without freeradius
+    explicitly opt out via ORW_HAS_PYTHON3=false.
+
+    Filesystem check is kept as a secondary signal so a manually-built
+    freeradius image without rlm_python3.so still falls back to False
+    when the env var isn't set (matching pre-bug behaviour for that
+    edge case).
     """
+    override = os.environ.get("ORW_HAS_PYTHON3", "").strip().lower()
+    if override in ("true", "1", "yes"):
+        return True
+    if override in ("false", "0", "no"):
+        return False
+
+    # No env override — fall back to filesystem presence check. This
+    # path is correct inside the freeradius container; the watcher
+    # container should set ORW_HAS_PYTHON3=true so it doesn't reach here.
     candidate_paths = [
         "/usr/lib/freeradius/rlm_python3.so",
         "/usr/lib/x86_64-linux-gnu/freeradius/rlm_python3.so",
