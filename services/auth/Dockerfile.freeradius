@@ -94,6 +94,15 @@ ENV PYTHONPATH=/opt/orw:${PYTHONPATH}
 COPY services/auth/freeradius_config_manager.py /opt/orw/
 COPY services/auth/freeradius_entrypoint.sh /opt/orw/
 
+# Bake migration scripts into the image so operators can run
+# `docker exec orw-freeradius python3 /opt/orw/scripts/<name>.py`
+# directly instead of `docker cp` each time. Pre-PR #79 the migration
+# instructions had the operator copy from /opt/openradiusweb on the host
+# every time — fragile (the host file might drift from main), and the
+# 2026-05-03 rollout had the operator patching scripts in /tmp/ which
+# don't survive container recreation.
+COPY scripts/ /opt/orw/scripts/
+
 RUN chmod +x /opt/orw/freeradius_entrypoint.sh
 
 EXPOSE 1812/udp 1813/udp

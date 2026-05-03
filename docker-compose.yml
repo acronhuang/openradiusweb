@@ -131,6 +131,34 @@ services:
     networks:
       - orw-net
 
+  coa:
+    # CoA (Change of Authorization) service. Listens on NATS for
+    # `orw.policy.action.coa` and `orw.policy.action.vlan_assign`,
+    # then sends RFC 5176 Disconnect-Request / CoA-Request packets to
+    # the NAS that owns the active session. Until 2026-05-04 this
+    # service ran as an orphan container outside docker-compose; PR
+    # #79 added it here so a single `docker compose up -d` brings the
+    # full stack online + survives `docker compose down`.
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile.coa
+    container_name: orw-coa
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://orw:${DB_PASSWORD}@postgres:5432/orw
+      - NATS_URL=nats://nats:4222
+      # coa_manager._get_coa_secret() decrypts network_devices.coa_secret_encrypted
+      # via orw_common.secrets before signing CoA RADIUS packets. PR #74.
+      - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
+      - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - orw-net
+
   switch_mgmt:
     build:
       context: .
