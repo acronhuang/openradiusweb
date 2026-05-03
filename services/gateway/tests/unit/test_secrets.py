@@ -19,7 +19,7 @@ os.environ["ORW_SECRET_MASTER"] = _TEST_MASTER
 os.environ["ORW_SECRET_KDF_SALT"] = _TEST_SALT
 
 
-from utils.secrets import (  # noqa: E402  — env must be set before import
+from orw_common.secrets import (  # noqa: E402  — env must be set before import
     _Vault,
     decrypt_secret,
     encrypt_secret,

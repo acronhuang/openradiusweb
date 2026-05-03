@@ -7,7 +7,9 @@ RUN apt-get update && apt-get install -y docker.io && apt-get clean
 
 COPY shared/ /app/shared/
 RUN pip install --no-cache-dir /app/shared/
-RUN pip install --no-cache-dir jinja2 cryptography psycopg2-binary nats-py
+# argon2-cffi added: orw_common.secrets uses Argon2id KDF to derive the
+# AES-256-GCM key for decrypting bind_password_encrypted (PR #71).
+RUN pip install --no-cache-dir jinja2 cryptography argon2-cffi psycopg2-binary nats-py
 
 COPY services/auth/freeradius_config_manager.py /app/
 COPY services/auth/freeradius_config_watcher.py /app/

@@ -573,9 +573,24 @@ def _get_user_ldap_groups(username, user_domain):
                               get_info=ldap3.NONE,
                               connect_timeout=5)
 
-        # Bind with service account
+        # Bind with service account. bind_password_encrypted is AES-256-GCM
+        # ciphertext post-PR #71; orw_common.secrets.decrypt_secret() also
+        # passes through legacy plaintext rows during the migration window.
+        # The orw_common module is shipped into this container by
+        # Dockerfile.freeradius (COPY shared/orw_common/) and reachable via
+        # PYTHONPATH=/opt/orw set there.
+        try:
+            from orw_common.secrets import decrypt_secret as _decrypt_secret
+        except ImportError:
+            # Defensive: if ENV/PYTHONPATH isn't set up (e.g. someone
+            # runs rlm_orw.py against an old image without PR #71's
+            # Dockerfile changes), fall back to passthrough so the bind
+            # still attempts with whatever's in the column. The bind
+            # will fail loudly if the row IS already ciphertext.
+            def _decrypt_secret(v):
+                return v
         bind_dn = ldap_cfg["bind_dn"]
-        bind_pw = ldap_cfg["bind_password_encrypted"] or ""
+        bind_pw = _decrypt_secret(ldap_cfg["bind_password_encrypted"]) or ""
 
         ldap_conn = ldap3.Connection(server, user=bind_dn, password=bind_pw,
                                      auto_bind=True, receive_timeout=10)

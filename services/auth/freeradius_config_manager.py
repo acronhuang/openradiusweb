@@ -21,6 +21,12 @@ import psycopg2
 import psycopg2.extras
 from jinja2 import Environment, FileSystemLoader
 
+# Decrypt LDAP bind password (and other future secret columns) from
+# AES-256-GCM ciphertext in DB. orw_common.secrets is shipped into this
+# container by Dockerfile.freeradius (COPY shared/orw_common/) and added
+# to PYTHONPATH there.
+from orw_common.secrets import decrypt_secret
+
 
 # ============================================================
 # Capability detection
@@ -356,7 +362,14 @@ class FreeRADIUSConfigManager:
                 "host": server["host"],
                 "port": server["port"],
                 "bind_dn": server["bind_dn"],
-                "bind_password": server.get("bind_password_encrypted", ""),
+                # bind_password_encrypted column is AES-256-GCM ciphertext
+                # post-PR #71. decrypt_secret() is a passthrough for legacy
+                # plaintext rows (returns input as-is on unrecognised
+                # ciphertext format) so this works during the migration
+                # window when some rows are still plaintext.
+                "bind_password": decrypt_secret(
+                    server.get("bind_password_encrypted")
+                ) or "",
                 "base_dn": server["base_dn"],
                 "user_search_base": server.get("user_search_base") or server["base_dn"],
                 "user_search_filter": server.get(

@@ -32,6 +32,19 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-unit-tests")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 os.environ.setdefault("NATS_URL", "nats://localhost:4222")
+# orw_common.secrets refuses to start without these. Use deterministic
+# but obviously-test values so that any test row that gets encrypted
+# can be decrypted within the same suite. NEVER use these in
+# production — Argon2id with a fixed salt is a fine test fixture but
+# zero entropy in real deploys.
+os.environ.setdefault(
+    "ORW_SECRET_MASTER",
+    "test-only-master-key-DO-NOT-USE-IN-PROD-mUstHaveEnoughEntropyzzzz",
+)
+os.environ.setdefault(
+    "ORW_SECRET_KDF_SALT",
+    "dGVzdC1zYWx0LTE2Ynl0ZQ",  # urlsafe-b64 of "test-salt-16byte"
+)
 
 _JWT_SECRET = "test-secret-key-for-unit-tests"
 _JWT_ALG = "HS256"

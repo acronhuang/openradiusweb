@@ -160,7 +160,7 @@ async def test_ldap_connection(
         conn = ldap3.Connection(
             ldap_server,
             user=server["bind_dn"],
-            password=server["bind_password_encrypted"],  # TODO: decrypt via Vault
+            password=server["bind_password_encrypted"],  # already decrypted by lookup_full_for_test
             auto_bind=False,
             raise_exceptions=True,
             receive_timeout=server["search_timeout_seconds"],

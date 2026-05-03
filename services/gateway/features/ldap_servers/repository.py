@@ -11,6 +11,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from orw_common.secrets import decrypt_secret, encrypt_secret
 from utils.safe_sql import build_safe_set_clause, LDAP_SERVER_UPDATE_COLUMNS
 
 
@@ -92,9 +93,12 @@ async def lookup_ldap_server_summary(
 async def lookup_full_for_test(
     db: AsyncSession, *, tenant_id: str, server_id: UUID,
 ) -> Optional[Mapping[str, Any]]:
-    """Returns ALL columns including bind_password_encrypted.
+    """Returns ALL columns including the decrypted bind password.
 
     Only used by the live LDAP connection test; never exposed via API.
+    The `bind_password_encrypted` key in the returned mapping holds the
+    decrypted plaintext (despite the column name) — callers pass it
+    straight to ldap3 as the bind password.
     """
     result = await db.execute(
         text(
@@ -103,7 +107,14 @@ async def lookup_full_for_test(
         ),
         {"id": str(server_id), "tenant_id": tenant_id},
     )
-    return result.mappings().first()
+    row = result.mappings().first()
+    if row is None:
+        return None
+    out = dict(row)
+    # decrypt_secret() handles None and is a passthrough for legacy
+    # plaintext rows during the migration window.
+    out["bind_password_encrypted"] = decrypt_secret(out.get("bind_password_encrypted"))
+    return out
 
 
 async def count_realm_references(
@@ -127,9 +138,10 @@ async def insert_ldap_server(
     db: AsyncSession, *, tenant_id: str, fields: dict,
 ) -> Mapping[str, Any]:
     """Insert all 25 LDAP columns. `fields` must come from the create schema
-    plus the tenant. `bind_password` is mapped to `bind_password_encrypted`."""
+    plus the tenant. `bind_password` (plaintext from the API request) is
+    encrypted via orw_common.secrets and stored as `bind_password_encrypted`."""
     payload = dict(fields)
-    payload["bind_password_encrypted"] = payload.pop("bind_password", None)
+    payload["bind_password_encrypted"] = encrypt_secret(payload.pop("bind_password", None))
     payload["tenant_id"] = tenant_id
     result = await db.execute(
         text(
@@ -161,7 +173,13 @@ async def insert_ldap_server(
 async def update_ldap_server(
     db: AsyncSession, *, tenant_id: str, server_id: UUID, updates: dict,
 ) -> Optional[Mapping[str, Any]]:
-    """Partial update with `bind_password` → `bind_password_encrypted` mapping."""
+    """Partial update. `bind_password` (when present and non-None in the
+    request) is encrypted before SQL, then mapped to the
+    `bind_password_encrypted` column."""
+    if updates.get("bind_password") is not None:
+        # Copy so we don't mutate the caller's dict.
+        updates = dict(updates)
+        updates["bind_password"] = encrypt_secret(updates["bind_password"])
     set_clause, params = build_safe_set_clause(
         updates,
         LDAP_SERVER_UPDATE_COLUMNS,
