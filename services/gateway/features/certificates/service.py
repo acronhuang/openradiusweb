@@ -14,6 +14,8 @@ Domain exceptions raised:
   - NotFoundError when a cert_id is unknown
   - ValidationError on bad PEM, missing CA, or deleting an active cert
 """
+import ipaddress
+from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
 
@@ -262,6 +264,100 @@ async def activate_cert(
         cert_id=str(cert_id), cert_type=summary["cert_type"],
     )
     return _decorate_with_status(row)
+
+
+# ---------------------------------------------------------------------------
+# Auto-renewal
+# ---------------------------------------------------------------------------
+
+def _split_san_dns_ips(san_list: Optional[list[str]]) -> tuple[list[str], list[str]]:
+    """SAN values are stored in one TEXT[] column; split back into the
+    DNS / IP buckets that GenerateServerRequest expects. Anything that
+    parses as an IPv4/IPv6 address goes to ips, everything else to dns.
+    """
+    if not san_list:
+        return [], []
+    dns: list[str] = []
+    ips: list[str] = []
+    for v in san_list:
+        try:
+            ipaddress.ip_address(v)
+            ips.append(v)
+        except ValueError:
+            dns.append(v)
+    return dns, ips
+
+
+def _renewal_name(old_name: str, when: datetime) -> str:
+    """`<old_name>-renewed-YYYYMMDD`. The schema enforces
+    UNIQUE(name, tenant_id) so this disambiguates from the previous row.
+    Truncate to fit the 255-char column.
+    """
+    suffix = f"-renewed-{when.strftime('%Y%m%d')}"
+    base = old_name[: 255 - len(suffix)]
+    return base + suffix
+
+
+async def auto_renew_expiring_server_certs(
+    db: AsyncSession,
+    actor: dict,
+    *,
+    threshold_days: int,
+) -> dict:
+    """Background-task entrypoint: renew every active server cert
+    expiring within `threshold_days`.
+
+    For each candidate:
+      1. Reconstruct GenerateServerRequest from the old cert's metadata
+         (preserves CN, SAN, key_size, original validity_days = the
+         delta between not_before and not_after).
+      2. Generate a new server cert signed by the active CA.
+      3. Activate the new cert (which deactivates the old one and
+         publishes the freeradius reload event).
+
+    Skips: imported=true rows (no original CSR/key — operator must
+    handle those manually).
+
+    Returns a summary dict for the caller to log:
+      {"checked": int, "renewed": [name, ...], "errors": [str, ...]}
+    """
+    candidates = await repo.list_renewable_server_certs_within(
+        db, tenant_id=actor["tenant_id"], threshold_days=threshold_days,
+    )
+    summary: dict = {"checked": len(candidates), "renewed": [], "errors": []}
+    if not candidates:
+        return summary
+
+    now = datetime.now(timezone.utc)
+    for old in candidates:
+        try:
+            san_dns, san_ips = _split_san_dns_ips(old.get("subject_alt_names"))
+            # Original validity_days from the old cert; fall back to 730
+            # (GenerateServerRequest default) if not_before is missing
+            # for some imported-but-flagged-as-not-imported edge case.
+            if old.get("not_before") and old.get("not_after"):
+                validity_days = max(
+                    1, (old["not_after"] - old["not_before"]).days,
+                )
+            else:
+                validity_days = 730
+
+            req = GenerateServerRequest(
+                name=_renewal_name(old["name"], now),
+                common_name=old["common_name"] or old["name"],
+                san_dns=san_dns,
+                san_ips=san_ips,
+                validity_days=validity_days,
+                key_size=old.get("key_size") or 2048,
+            )
+            new_row = await generate_server(db, actor, req=req)
+            await activate_cert(db, actor, cert_id=UUID(str(new_row["id"])))
+            summary["renewed"].append(req.name)
+        except Exception as exc:
+            summary["errors"].append(
+                f"{old.get('name', old['id'])}: {type(exc).__name__}: {exc}"
+            )
+    return summary
 
 
 async def delete_cert(
