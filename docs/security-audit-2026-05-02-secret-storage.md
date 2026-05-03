@@ -8,7 +8,17 @@ The naming is aspirational — no encryption layer exists in the codebase.
 This is misleading to future maintainers and DB admins, and any DB compromise
 exposes every backend secret.
 
-## Status of remediation (updated 2026-05-03 — Phase 1 COMPLETE in code)
+## Status of remediation (updated 2026-05-03 — Phase 1 COMPLETE; strict-mode flipped 2026-05-03)
+
+> **2026-05-03 update**: After every production row was verified as
+> ciphertext, `decrypt_secret()` was switched from permissive (return
+> input on unrecognised format) to strict (raise `ValueError`). This
+> closes the last attacker-substitution path — see
+> shared/orw_common/secrets.py for the as-shipped implementation. The
+> code blocks under §4 below are the original 2026-05-02 design
+> proposal, kept as historical context.
+
+
 
 | Column | Status | PR |
 |---|---|---|

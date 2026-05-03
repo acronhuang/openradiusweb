@@ -28,11 +28,22 @@ Key material lifecycle:
 - Derived encryption key    Argon2id(master, salt) -> 32 bytes,
                             cached in process memory after first call
 
-Migration helper: decrypt() is permissive — it returns the input
-unchanged when given something that isn't recognisable ciphertext, so
-existing plaintext rows keep working until the migration script
-re-encrypts them. Remove the passthrough fallback after the migration
-window closes (see docs/security-audit-... §5).
+Strictness: decrypt() raises ValueError on input that isn't
+recognisable ciphertext (wrong base64, wrong version byte, wrong
+length). Earlier versions silently returned the input unchanged so
+unmigrated plaintext rows kept working — that fallback was removed
+after the Phase 1 migration was verified end-to-end on production
+(2026-05-03; see docs/security-audit-2026-05-02-secret-storage.md).
+
+Empty strings are passed through unchanged (treated as "no value")
+because empty cannot possibly be valid ciphertext (min ciphertext
+length is 29 bytes after base64 = ~40 chars).
+
+If you hit a ValueError after this point it means a stored row was
+written without going through encrypt_secret() — that's the bug, not
+the strictness. The pre-commit hook
+scripts/check_encrypted_columns_wrapped.py exists to catch this at
+review time.
 """
 from __future__ import annotations
 
@@ -136,20 +147,34 @@ class _Vault:
             raise TypeError(
                 f"decrypt_secret expects str, got {type(ciphertext).__name__}"
             )
+        # Empty string can never be valid ciphertext (minimum is
+        # version byte + 12-byte nonce + 16-byte tag = 29 bytes, then
+        # base64). Treat as "no value" to match the historical
+        # behaviour for empty columns.
+        if ciphertext == "":
+            return ""
         try:
             blob = _b64url_decode(ciphertext)
-        except (ValueError, base64.binascii.Error):  # type: ignore[attr-defined]
-            # Not valid base64 -> legacy plaintext row, return as-is.
-            # Migration script reads + writes back; once all rows are
-            # encrypted this fallback can be removed.
-            return ciphertext
+        except (ValueError, base64.binascii.Error) as exc:  # type: ignore[attr-defined]
+            raise ValueError(
+                "decrypt_secret: input is not valid urlsafe-base64. "
+                "This usually means the column was written without going "
+                "through encrypt_secret(). Check the migration history "
+                "and the encrypted-columns-wrapped pre-commit hook."
+            ) from exc
 
-        if (
-            len(blob) < 1 + _NONCE_LEN + _TAG_LEN
-            or blob[0] != _VERSION
-        ):
-            # Wrong version or too short -> assume legacy plaintext.
-            return ciphertext
+        if len(blob) < 1 + _NONCE_LEN + _TAG_LEN:
+            raise ValueError(
+                f"decrypt_secret: blob is {len(blob)} bytes; need at "
+                f"least {1 + _NONCE_LEN + _TAG_LEN} (version + nonce + tag)."
+            )
+        if blob[0] != _VERSION:
+            raise ValueError(
+                f"decrypt_secret: unknown version byte 0x{blob[0]:02x} "
+                f"(expected 0x{_VERSION:02x}). Either the row predates "
+                f"the encryption migration, or a future version was "
+                f"written by a newer build that this process can't read."
+            )
 
         nonce = blob[1 : 1 + _NONCE_LEN]
         ct_and_tag = blob[1 + _NONCE_LEN :]

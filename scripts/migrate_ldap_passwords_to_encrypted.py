@@ -4,11 +4,13 @@
 After PR #71 ships:
   - New ldap_servers rows have AES-256-GCM ciphertext in bind_password_encrypted
   - Existing rows still have plaintext from before the migration
-  - decrypt_secret() is permissive (returns input unchanged on unrecognised
-    format) so legacy plaintext rows keep working — gateway still binds OK,
-    freeradius still binds OK
-  - But you want to actually encrypt them so the on-disk DB doesn't expose
-    the AD service-account password if backups leak
+
+Historical note: between PR #71 and the strict-mode flip, decrypt_secret()
+returned unrecognised input unchanged so legacy plaintext kept working
+during the migration window. That fallback was removed once every
+production row was verified as ciphertext. If you're running this
+script on an environment that's still on the permissive build, the
+encryption step still works the same way.
 
 This script walks every ldap_servers row, detects whether the
 `bind_password_encrypted` column already contains ciphertext (via

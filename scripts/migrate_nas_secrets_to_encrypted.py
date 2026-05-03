@@ -4,11 +4,13 @@
 After PR #72 ships:
   - New radius_nas_clients rows have AES-256-GCM ciphertext in secret_encrypted
   - Existing rows still have plaintext from before the migration
-  - decrypt_secret() is permissive (returns input unchanged on unrecognised
-    format) so legacy plaintext rows keep working — freeradius keeps signing
-    RADIUS packets correctly during the migration window
-  - But the on-disk DB still exposes the NAS shared secret if backups leak,
+  - On-disk DB still exposes the NAS shared secret if backups leak,
     so this script flips them to ciphertext
+
+Historical note: between PR #72 and the strict-mode flip, decrypt_secret()
+returned unrecognised input unchanged so legacy plaintext rows kept
+working during the migration window. That fallback was removed once
+every production row was verified as ciphertext.
 
 Walks every radius_nas_clients row, detects whether the
 `secret_encrypted` column already contains ciphertext (via `is_encrypted()`),
