@@ -91,7 +91,11 @@ def main() -> int:
     try:
         conn = psycopg2.connect(db_url)
     except psycopg2.OperationalError as exc:
-        print(f"ERROR: cannot connect to postgres — {exc}", file=sys.stderr)
+        from orw_common.db_url_safe import format_db_error
+        print(
+            f"ERROR: cannot connect to postgres — {format_db_error(exc, db_url)}",
+            file=sys.stderr,
+        )
         return 1
 
     failed: list[str] = []
