@@ -99,7 +99,11 @@ TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
 curl -s -H "Authorization: Bearer $TOKEN" \
-    http://localhost:8000/api/v1/health/backup | python3 -m json.tool
+    http://localhost:8000/health/backup | python3 -m json.tool
+
+# (Note: /health and /health/backup are at the ROOT path, NOT under
+# /api/v1, because the health router is included in main.py without
+# the /api/v1 prefix that the rest of the API uses.)
 ```
 
 Expected shape:
