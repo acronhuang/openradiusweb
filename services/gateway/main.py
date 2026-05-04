@@ -38,6 +38,7 @@ from features.network_devices import network_devices_router
 from features.dot1x_overview import dot1x_overview_router
 from features.radius_auth_log import radius_auth_log_router
 from features.policies import policies_router
+from features.backups import backups_router
 from features.certificates import certificates_router
 
 settings = get_settings()
@@ -220,6 +221,7 @@ app.include_router(vlans_router, prefix=prefix, tags=["VLANs"])
 app.include_router(mab_devices_router, prefix=prefix, tags=["MAB Devices"])
 app.include_router(dot1x_overview_router, prefix=prefix, tags=["802.1X Overview"])
 app.include_router(group_vlan_mappings_router, prefix=prefix, tags=["Group VLAN Mappings"])
+app.include_router(backups_router, prefix=prefix, tags=["Backups"])
 
 # Prometheus metrics endpoint (/metrics)
 Instrumentator().instrument(app).expose(app, include_in_schema=False)

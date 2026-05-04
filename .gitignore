@@ -42,8 +42,10 @@ htmlcov/
 *.log
 logs/
 
-# Backups
-backups/
+# Backups (only the top-level dir where backup.sh writes archives;
+# anchored with leading slash so services/gateway/features/backups/
+# isn't accidentally ignored)
+/backups/
 
 # Deploy scripts (development-only hotfix scripts)
 deploy/upload_*.py
