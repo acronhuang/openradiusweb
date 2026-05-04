@@ -32,10 +32,17 @@ async def test_lookup_settings_omits_encrypted_blob(db_session, tenant_id):
     destination_config_encrypted (the credential blob). It surfaces
     only as a `destination_configured` boolean. Verify by inserting
     a row with non-NULL encrypted blob and confirming the SELECT
-    returns the boolean but NOT the blob itself."""
+    returns the boolean but NOT the blob itself.
+
+    The literal 'fake-ciphertext' below is test fixture data, not a
+    real plaintext leak — the test only checks the IS NOT NULL
+    derivation, never decrypts. PR #82's pre-commit hook would
+    normally flag a *_encrypted column write without encrypt_secret;
+    skip it here because no plaintext is actually being committed.
+    """
     await db_session.execute(
         text(
-            "INSERT INTO backup_settings "
+            "INSERT INTO backup_settings "  # orw-lint: skip-encryption-check
             "(tenant_id, schedule_cron, destination_type, "
             " destination_config_encrypted, enabled) "
             "VALUES (:tid, '0 4 * * *', 'rsync', 'fake-ciphertext', true)"
