@@ -1,7 +1,8 @@
 """HTTP routes for the mab_devices feature (Layer 3)."""
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from orw_common.database import get_db
@@ -123,4 +124,52 @@ async def bulk_import_mab_devices(
         db, user,
         devices=devices,
         client_ip=_client_ip(request),
+    )
+
+
+@router.post("/import-csv", status_code=201)
+async def import_csv_mab_devices(
+    request: Request,
+    csv_text: str = Body(
+        ...,
+        media_type="text/csv",
+        description="CSV with header row. Required column: mac_address. "
+                    "Optional: name, description, device_type, "
+                    "assigned_vlan_id, expiry_date.",
+    ),
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_admin),
+):
+    """Bulk import MAB devices from a CSV blob (admin only).
+
+    Returns {created, skipped, total, parse_errors} so the operator
+    can surface per-row failures while still accepting the valid rows.
+    Header-based: column order is irrelevant; unknown columns are
+    silently dropped.
+    """
+    return await service.import_csv(
+        db, user,
+        csv_text=csv_text,
+        client_ip=_client_ip(request),
+    )
+
+
+@router.get("/export-csv", response_class=PlainTextResponse)
+async def export_csv_mab_devices(
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Download every MAB device in the tenant as CSV.
+
+    Column set matches the import format so the export is round-trip
+    safe (export → edit → re-import). Returns text/csv with the
+    standard header row.
+    """
+    csv_text = await service.export_csv(db, tenant_id=user["tenant_id"])
+    return PlainTextResponse(
+        content=csv_text,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="mab-devices.csv"',
+        },
     )
