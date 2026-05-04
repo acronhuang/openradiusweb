@@ -82,6 +82,10 @@ services:
       - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
       - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Server cert auto-renewal background task (PR #93 / #95). The
+      # `:-N` form falls back to the in-code default when not overridden.
+      - ORW_CERT_RENEW_THRESHOLD_DAYS=${ORW_CERT_RENEW_THRESHOLD_DAYS:-30}
+      - ORW_CERT_RENEW_INTERVAL_HOURS=${ORW_CERT_RENEW_INTERVAL_HOURS:-6}
     depends_on:
       postgres:
         condition: service_healthy
