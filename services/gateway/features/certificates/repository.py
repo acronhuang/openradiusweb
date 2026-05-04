@@ -95,6 +95,37 @@ async def lookup_cert_summary(
     return result.mappings().first()
 
 
+async def list_renewable_server_certs_within(
+    db: AsyncSession, *, tenant_id: str, threshold_days: int,
+) -> list[Mapping[str, Any]]:
+    """Active server certs that expire within `threshold_days` AND were
+    NOT imported (we have no original key/CSR for imported certs, so
+    auto-renewal would need a fresh CSR from the operator).
+
+    Used by the auto-renewal background task in gateway/main.py.
+    Returns the columns needed to reconstruct a GenerateServerRequest:
+    id, name, common_name, subject_alt_names, key_size,
+    not_before, not_after.
+    """
+    result = await db.execute(
+        text(
+            "SELECT id, name, common_name, subject_alt_names, "
+            "       key_size, not_before, not_after "
+            "FROM certificates "
+            "WHERE cert_type = 'server' "
+            "  AND is_active = true "
+            "  AND enabled = true "
+            "  AND imported = false "
+            "  AND tenant_id = :tenant_id "
+            "  AND not_after IS NOT NULL "
+            "  AND not_after < NOW() + (:days || ' days')::interval "
+            "ORDER BY not_after"
+        ),
+        {"tenant_id": tenant_id, "days": threshold_days},
+    )
+    return list(result.mappings().all())
+
+
 async def lookup_active_ca(
     db: AsyncSession, *, tenant_id: str,
 ) -> Optional[Mapping[str, Any]]:

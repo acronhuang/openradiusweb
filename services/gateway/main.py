@@ -1,5 +1,6 @@
 """OpenRadiusWeb API Gateway - Main application entry point."""
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -12,7 +13,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from orw_common import __version__
 from orw_common.config import get_settings
-from orw_common.database import close_db
+from orw_common.database import close_db, get_db_context
 from orw_common.exceptions import (
     DomainError, NotFoundError, ConflictError, ValidationError,
     AuthenticationError, AuthorizationError, RateLimitError,
@@ -88,6 +89,44 @@ async def generic_exception_handler(request: Request, exc: Exception):
     )
 
 
+async def _cert_renewal_loop():
+    """Background coroutine — renew expiring server certs.
+
+    Wakes every ORW_CERT_RENEW_INTERVAL_HOURS (default 6h), opens its
+    own DB session, calls run_auto_renewal_once, logs the summary.
+    Catches all exceptions inside the loop body so a single bad cycle
+    doesn't kill the task. CancelledError is re-raised so shutdown is
+    immediate.
+    """
+    from features.certificates import run_auto_renewal_once
+    from features.certificates.auto_renewal import _renew_interval_seconds
+
+    interval = _renew_interval_seconds()
+    log.info("cert_renewal_loop_started", interval_seconds=interval)
+    while True:
+        try:
+            async with get_db_context() as db:
+                summary = await run_auto_renewal_once(db)
+            if summary.get("renewed") or summary.get("errors"):
+                log.info(
+                    "cert_renewal_pass_complete",
+                    checked=summary.get("checked", 0),
+                    renewed=summary.get("renewed", []),
+                    errors=summary.get("errors", []),
+                )
+            else:
+                log.debug(
+                    "cert_renewal_pass_complete",
+                    checked=summary.get("checked", 0),
+                )
+        except asyncio.CancelledError:
+            log.info("cert_renewal_loop_cancelled")
+            raise
+        except Exception as exc:
+            log.exception("cert_renewal_loop_error", error=str(exc))
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup/shutdown lifecycle."""
@@ -98,11 +137,22 @@ async def lifespan(app: FastAPI):
     await nats_client.ensure_stream(
         "orw", ["orw.>"]
     )
+
+    # Start background tasks
+    renewal_task = asyncio.create_task(_cert_renewal_loop())
+
     log.info("gateway_ready")
 
     yield
 
-    # Cleanup
+    # Cleanup — cancel background tasks first so they don't try to use
+    # the NATS connection / DB pool we're about to tear down.
+    renewal_task.cancel()
+    try:
+        await renewal_task
+    except asyncio.CancelledError:
+        pass
+
     await nats_client.close()
     await close_db()
     log.info("gateway_stopped")
