@@ -109,6 +109,13 @@ services:
       # column (LDAP bind password, NAS shared secret, cert key, etc.).
       - ORW_SECRET_MASTER=${ORW_SECRET_MASTER}
       - ORW_SECRET_KDF_SALT=${ORW_SECRET_KDF_SALT}
+      # Server cert auto-renewal background task (PR #93 / #95). The
+      # `:-N` form falls back to the in-code default when .env.production
+      # doesn't set the var, so existing deployments need no change.
+      # Operators set the env var to override (e.g. =3650 to force
+      # renewal of certs further out, or =1 to test the flow quickly).
+      - ORW_CERT_RENEW_THRESHOLD_DAYS=${ORW_CERT_RENEW_THRESHOLD_DAYS:-30}
+      - ORW_CERT_RENEW_INTERVAL_HOURS=${ORW_CERT_RENEW_INTERVAL_HOURS:-6}
     depends_on:
       postgres:
         condition: service_healthy
