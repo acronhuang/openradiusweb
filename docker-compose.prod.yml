@@ -116,6 +116,15 @@ services:
       # renewal of certs further out, or =1 to test the flow quickly).
       - ORW_CERT_RENEW_THRESHOLD_DAYS=${ORW_CERT_RENEW_THRESHOLD_DAYS:-30}
       - ORW_CERT_RENEW_INTERVAL_HOURS=${ORW_CERT_RENEW_INTERVAL_HOURS:-6}
+      # Backup status file path inside the container (PR #102). The
+      # host's ./backups dir is mounted RO below; the file is written
+      # by scripts/backup-and-rotate.sh on every scheduled backup run.
+      - ORW_BACKUP_STATUS_PATH=/var/orw-backups/.last-status.json
+    volumes:
+      # Read-only mount so the /api/v1/health/backup endpoint can
+      # report the most recent scheduled backup's status without
+      # leaving a write path open.
+      - ./backups:/var/orw-backups:ro
     depends_on:
       postgres:
         condition: service_healthy

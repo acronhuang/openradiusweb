@@ -1,0 +1,39 @@
+# OpenRadiusWeb scheduled backup — service unit.
+#
+# Triggered by orw-backup.timer at the configured cadence.
+# Runs as root because backup.sh shells into Docker containers via
+# /var/run/docker.sock.
+#
+# Environment vars (set via /etc/openradiusweb/backup.env or pass
+# -E to systemctl edit orw-backup.service to override):
+#   ORW_BACKUP_KEEP_DAYS       — default 7 (local retention window)
+#   ORW_BACKUP_OFFSITE_TARGET  — default unset (e.g. "user@host:/path");
+#                                empty/unset → skip offsite step
+#
+# All output goes to journalctl. Inspect with:
+#   journalctl -u orw-backup.service --since '1 day ago'
+#
+# Install: see docs/runbook-backup-cron.md.
+
+[Unit]
+Description=OpenRadiusWeb scheduled backup (local + optional offsite)
+Documentation=file:///opt/openradiusweb/docs/runbook-backup-cron.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/openradiusweb
+EnvironmentFile=-/etc/openradiusweb/backup.env
+# `-` prefix means missing file is OK (operator may not have created it).
+ExecStart=/opt/openradiusweb/scripts/backup-and-rotate.sh
+
+# Don't let a stuck rsync hang forever. The script itself sets
+# rsync --timeout=600 but belt-and-braces.
+TimeoutStartSec=3600
+
+# Log identification
+SyslogIdentifier=orw-backup
+StandardOutput=journal
+StandardError=journal
