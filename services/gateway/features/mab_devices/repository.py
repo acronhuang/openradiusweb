@@ -182,6 +182,26 @@ async def delete_mab_device(
     )
 
 
+async def list_mab_devices_for_export(
+    db: AsyncSession, *, tenant_id: str,
+) -> list[Mapping[str, Any]]:
+    """All MAB devices in the tenant, every column the CSV import
+    accepts. No pagination — exports are a one-shot operation;
+    callers stream the result rather than holding a long-lived list.
+    """
+    result = await db.execute(
+        text(
+            "SELECT mac_address, name, description, device_type, "
+            "       assigned_vlan_id, expiry_date "
+            "FROM mab_devices "
+            "WHERE tenant_id = :tenant_id "
+            "ORDER BY mac_address"
+        ),
+        {"tenant_id": tenant_id},
+    )
+    return list(result.mappings().all())
+
+
 async def bulk_insert_mab_device(
     db: AsyncSession,
     *,
@@ -189,29 +209,37 @@ async def bulk_insert_mab_device(
     created_by: str,
     mac_address: str,
     name: Optional[str],
+    description: Optional[str],
     device_type: Optional[str],
     assigned_vlan_id: Optional[int],
+    expiry_date: Optional[datetime],
 ) -> bool:
     """Insert one MAB device with ON CONFLICT DO NOTHING.
 
     Returns True if a row was actually inserted, False if it conflicted
-    on (mac_address, tenant_id).
+    on (mac_address, tenant_id). The 6 input columns mirror what the
+    CSV import accepts; description + expiry_date were added in PR #97
+    so a CSV row can carry the same metadata as the single-add UI form.
     """
     result = await db.execute(
         text(
             "INSERT INTO mab_devices "
-            "(mac_address, name, device_type, assigned_vlan_id, "
-            "enabled, tenant_id, created_by) "
-            "VALUES (CAST(:mac AS macaddr), :name, :device_type, "
-            ":assigned_vlan_id, true, :tenant_id, :created_by) "
+            "(mac_address, name, description, device_type, "
+            " assigned_vlan_id, expiry_date, "
+            " enabled, tenant_id, created_by) "
+            "VALUES (CAST(:mac AS macaddr), :name, :description, "
+            " :device_type, :assigned_vlan_id, :expiry_date, "
+            " true, :tenant_id, :created_by) "
             "ON CONFLICT (mac_address, tenant_id) DO NOTHING "
             "RETURNING id"
         ),
         {
             "mac": mac_address,
             "name": name,
+            "description": description,
             "device_type": device_type,
             "assigned_vlan_id": assigned_vlan_id,
+            "expiry_date": expiry_date,
             "tenant_id": tenant_id,
             "created_by": created_by,
         },

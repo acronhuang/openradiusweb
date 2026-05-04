@@ -218,8 +218,10 @@ async def bulk_import(
             created_by=actor["sub"],
             mac_address=dev.mac_address,
             name=dev.name,
+            description=dev.description,
             device_type=dev.device_type,
             assigned_vlan_id=dev.assigned_vlan_id,
+            expiry_date=dev.expiry_date,
         )
         if inserted:
             created += 1
@@ -233,3 +235,136 @@ async def bulk_import(
         ip_address=client_ip,
     )
     return {"created": created, "skipped": skipped, "total": len(devices)}
+
+
+# ---------------------------------------------------------------------------
+# CSV import / export (PR #97)
+# ---------------------------------------------------------------------------
+
+# Header-based — column order doesn't matter, only the names. Required:
+# `mac_address`. Everything else optional. Unknown columns are silently
+# ignored so operators can carry around extra columns (e.g. asset_tag)
+# without the import failing.
+CSV_REQUIRED_HEADERS = frozenset({"mac_address"})
+CSV_KNOWN_HEADERS = frozenset({
+    "mac_address", "name", "description", "device_type",
+    "assigned_vlan_id", "expiry_date",
+})
+
+
+def _parse_csv_to_bulk_items(
+    csv_text: str,
+) -> tuple[list[MabDeviceBulkItem], list[dict]]:
+    """Parse a CSV blob into bulk items + per-row error reports.
+
+    Returns (valid_items, errors). Errors are dicts shaped like
+    {"row": <1-based>, "raw": <raw row>, "error": <message>}.
+    Errors do NOT abort parsing — every row is attempted, the caller
+    decides whether to import the valid ones anyway. The route then
+    returns both lists so the UI can show the operator what went
+    wrong before they decide to commit.
+    """
+    import csv
+    import io
+
+    reader = csv.DictReader(io.StringIO(csv_text))
+    if reader.fieldnames is None:
+        return [], [{"row": 0, "raw": "", "error": "CSV has no header row"}]
+
+    headers = {h.strip().lower() for h in reader.fieldnames}
+    missing = CSV_REQUIRED_HEADERS - headers
+    if missing:
+        return [], [{
+            "row": 0, "raw": ",".join(reader.fieldnames or []),
+            "error": f"missing required column(s): {sorted(missing)}",
+        }]
+
+    items: list[MabDeviceBulkItem] = []
+    errors: list[dict] = []
+    for idx, raw_row in enumerate(reader, start=2):  # row 1 is the header
+        # Lowercase + strip header keys; keep value strings as-is so
+        # MAC normaliser sees what the user typed.
+        row = {
+            (k or "").strip().lower(): (v or "").strip()
+            for k, v in raw_row.items()
+        }
+        # Empty lines (all blank values) — skip silently rather than
+        # erroring. Common when operators paste from spreadsheet with
+        # trailing blanks.
+        if not any(row.values()):
+            continue
+        # Drop unknown columns + blank optional values so Pydantic uses
+        # the model defaults (None) instead of seeing empty strings.
+        clean = {
+            k: v for k, v in row.items()
+            if k in CSV_KNOWN_HEADERS and v != ""
+        }
+        # assigned_vlan_id arrives as str; let Pydantic coerce.
+        try:
+            items.append(MabDeviceBulkItem(**clean))
+        except Exception as exc:
+            errors.append({
+                "row": idx,
+                "raw": ",".join(str(v) for v in raw_row.values()),
+                "error": str(exc),
+            })
+    return items, errors
+
+
+async def import_csv(
+    db: AsyncSession,
+    actor: dict,
+    *,
+    csv_text: str,
+    client_ip: Optional[str],
+) -> dict:
+    """Parse CSV → import the valid rows → return a structured summary
+    that includes per-row errors so the operator can fix and re-upload.
+
+    Even if some rows have errors, the valid ones are imported (matches
+    bulk_import's row-by-row idempotency). Operators almost always
+    prefer "I got 47 of 50 in, here are the 3 problems" over "the
+    whole batch failed because row 17 had a typo".
+    """
+    items, errors = _parse_csv_to_bulk_items(csv_text)
+    summary: dict
+    if items:
+        summary = await bulk_import(
+            db, actor, devices=items, client_ip=client_ip,
+        )
+    else:
+        summary = {"created": 0, "skipped": 0, "total": 0}
+    summary["parse_errors"] = errors
+    return summary
+
+
+async def export_csv(
+    db: AsyncSession,
+    *,
+    tenant_id: str,
+) -> str:
+    """Render every MAB device for the tenant as a CSV string with the
+    same 6 columns the importer accepts. Round-trip safe: export →
+    edit → re-import works (existing rows skip via ON CONFLICT, edits
+    require deleting + re-importing because import doesn't UPDATE).
+    """
+    import csv
+    import io
+
+    rows = await repo.list_mab_devices_for_export(db, tenant_id=tenant_id)
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow([
+        "mac_address", "name", "description", "device_type",
+        "assigned_vlan_id", "expiry_date",
+    ])
+    for r in rows:
+        writer.writerow([
+            str(r["mac_address"]),
+            r.get("name") or "",
+            r.get("description") or "",
+            r.get("device_type") or "",
+            r.get("assigned_vlan_id") if r.get("assigned_vlan_id") is not None else "",
+            r["expiry_date"].isoformat() if r.get("expiry_date") else "",
+        ])
+    return out.getvalue()

@@ -37,8 +37,10 @@ class MabDeviceUpdate(BaseModel):
 class MabDeviceBulkItem(BaseModel):
     mac_address: str
     name: Optional[str] = None
+    description: Optional[str] = None
     device_type: Optional[str] = None
     assigned_vlan_id: Optional[int] = Field(None, ge=1, le=4094)
+    expiry_date: Optional[datetime] = None
 
     @field_validator("mac_address")
     @classmethod
