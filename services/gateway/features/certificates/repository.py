@@ -107,6 +107,11 @@ async def list_renewable_server_certs_within(
     id, name, common_name, subject_alt_names, key_size,
     not_before, not_after.
     """
+    # Use make_interval(days => :days) instead of `(:days || ' days')::interval`.
+    # The string-concat form forces asyncpg to encode :days as text, which
+    # raises `DataError: expected str, got int` when threshold_days is the
+    # natural Python int (PR #94 hot-fix; surfaced on prod 2026-05-04 right
+    # after the PR #93 first reconcile).
     result = await db.execute(
         text(
             "SELECT id, name, common_name, subject_alt_names, "
@@ -118,7 +123,7 @@ async def list_renewable_server_certs_within(
             "  AND imported = false "
             "  AND tenant_id = :tenant_id "
             "  AND not_after IS NOT NULL "
-            "  AND not_after < NOW() + (:days || ' days')::interval "
+            "  AND not_after < NOW() + make_interval(days => :days) "
             "ORDER BY not_after"
         ),
         {"tenant_id": tenant_id, "days": threshold_days},
