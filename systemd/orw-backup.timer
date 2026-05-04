@@ -1,0 +1,28 @@
+# OpenRadiusWeb scheduled backup — timer unit.
+#
+# Fires orw-backup.service nightly at 02:30 local time. 02:30 picked
+# because:
+#   - lowest auth load window for corporate WiFi (after midnight stragglers)
+#   - non-conflicting with typical OS update windows
+#   - aligned with the example in scripts/backup.sh comments
+#
+# Persistent=true means a missed run (e.g. host was off at 02:30)
+# triggers as soon as the system is back up.
+#
+# Install + enable: see docs/runbook-backup-cron.md.
+
+[Unit]
+Description=Run OpenRadiusWeb backup nightly
+Documentation=file:///opt/openradiusweb/docs/runbook-backup-cron.md
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=300
+# Spread the load if many hosts share a backup target — adds 0-300s
+# random jitter to the trigger time. Single-host deployments: harmless.
+
+Unit=orw-backup.service
+
+[Install]
+WantedBy=timers.target
