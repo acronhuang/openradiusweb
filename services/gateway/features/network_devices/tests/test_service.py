@@ -22,8 +22,8 @@ def actor():
     return {"sub": str(uuid4()), "tenant_id": str(uuid4()), "username": "alice"}
 
 
-def _create_fields():
-    return {
+def _create_fields(**overrides):
+    base = {
         "ip_address": "10.0.0.1",
         "hostname": "core-sw1",
         "vendor": "Cisco",
@@ -35,6 +35,8 @@ def _create_fields():
         "snmp_community": "topsecret",
         "poll_interval_seconds": 300,
     }
+    base.update(overrides)
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -181,3 +183,59 @@ class TestDelete:
                 await service.delete_network_device(
                     mock_db, actor, device_id=uuid4(),
                 )
+
+
+# ---------------------------------------------------------------------------
+# SSH credentials passthrough (PR #100)
+# ---------------------------------------------------------------------------
+
+class TestCreateSshCredsPassthrough:
+    """The service must forward ssh_username + ssh_password to the
+    repo, where they're encrypted before INSERT. Pre-PR-#100 these
+    fields were silently dropped at the service layer (the repo's
+    insert signature didn't take them); this test pins the fix."""
+
+    @pytest.mark.asyncio
+    async def test_ssh_creds_forwarded_to_repo(self, mock_db, actor):
+        captured = {}
+
+        async def fake_insert(_db, **kwargs):
+            captured.update(kwargs)
+            return {"id": uuid4(), "ip_address": "10.0.0.1", "hostname": "x"}
+
+        with patch.object(repo, "insert_network_device", fake_insert), \
+             patch("features.network_devices.events.nats_client.publish",
+                   AsyncMock()), \
+             patch("features.network_devices.service.log_audit", AsyncMock()):
+            await service.create_network_device(
+                mock_db, actor,
+                fields=_create_fields(
+                    ssh_username="netadmin",
+                    ssh_password="rotated-2026Q2",
+                ),
+                client_ip="1.2.3.4",
+            )
+        assert captured["ssh_username"] == "netadmin"
+        assert captured["ssh_password"] == "rotated-2026Q2"
+
+    @pytest.mark.asyncio
+    async def test_omitted_ssh_creds_become_none(self, mock_db, actor):
+        """A device created without SSH creds (e.g. SNMP-only) must
+        get None for both fields, not '' or KeyError."""
+        captured = {}
+
+        async def fake_insert(_db, **kwargs):
+            captured.update(kwargs)
+            return {"id": uuid4(), "ip_address": "10.0.0.1", "hostname": "x"}
+
+        with patch.object(repo, "insert_network_device", fake_insert), \
+             patch("features.network_devices.events.nats_client.publish",
+                   AsyncMock()), \
+             patch("features.network_devices.service.log_audit", AsyncMock()):
+            await service.create_network_device(
+                mock_db, actor,
+                fields=_create_fields(),  # no ssh_* keys
+                client_ip="1.2.3.4",
+            )
+        assert captured["ssh_username"] is None
+        assert captured["ssh_password"] is None

@@ -103,18 +103,32 @@ async def insert_network_device(
     management_protocol: str,
     snmp_version: Optional[str],
     snmp_community: Optional[str],
+    ssh_username: Optional[str],
+    ssh_password: Optional[str],
     poll_interval_seconds: int,
 ) -> Mapping[str, Any]:
-    """`snmp_community` (request) → `snmp_community_encrypted` (DB column)."""
+    """Map request fields to DB columns:
+
+    - `snmp_community` (request) → `snmp_community_encrypted`
+    - `ssh_password`    (request) → `ssh_password_encrypted`
+    - `ssh_username`    (request) → `ssh_username` (plaintext)
+
+    Both encrypted columns go through `encrypt_secret` so the
+    pre-commit hook in scripts/check_encrypted_columns_wrapped.py
+    (PR #82) verifies the wrapping at review time.
+    """
     result = await db.execute(
         text(
             "INSERT INTO network_devices "
             "(ip_address, hostname, vendor, model, os_version, device_type, "
             "management_protocol, snmp_version, snmp_community_encrypted, "
+            "ssh_username, ssh_password_encrypted, "
             "poll_interval_seconds, tenant_id) "
             "VALUES (:ip_address, :hostname, :vendor, :model, :os_version, "
             ":device_type, :management_protocol, :snmp_version, "
-            ":snmp_community, :poll_interval, :tenant_id) "
+            ":snmp_community, "
+            ":ssh_username, :ssh_password, "
+            ":poll_interval, :tenant_id) "
             "RETURNING *"
         ),
         {
@@ -130,6 +144,12 @@ async def insert_network_device(
             # AES-256-GCM via orw_common.secrets — switch_mgmt decrypts when
             # opening SNMP sessions. PR #74.
             "snmp_community": encrypt_secret(snmp_community),
+            "ssh_username": ssh_username,
+            # ssh_password (request) → ssh_password_encrypted column.
+            # AES-256-GCM via orw_common.secrets — switch_mgmt's ssh_manager
+            # decrypts when opening SSH sessions for port-bounce / VLAN-via-CLI
+            # actions. PR #100.
+            "ssh_password": encrypt_secret(ssh_password),
             "poll_interval": poll_interval_seconds,
             "tenant_id": tenant_id,
         },

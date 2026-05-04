@@ -16,9 +16,9 @@ class NetworkDeviceCreate(BaseModel):
     device_type: str = Field(..., pattern=r"^(switch|router|ap|firewall)$")
     management_protocol: str = "snmp"
     snmp_version: str = "v2c"
-    snmp_community: Optional[str] = None  # Will be encrypted before storage
-    ssh_username: Optional[str] = None
-    ssh_password: Optional[str] = None  # Will be stored in Vault
+    snmp_community: Optional[str] = None  # AES-256-GCM at write (PR #74)
+    ssh_username: Optional[str] = None  # Plaintext column on network_devices
+    ssh_password: Optional[str] = None  # AES-256-GCM via orw_common.secrets (PR #100)
     poll_interval_seconds: int = 300
 
 
@@ -29,9 +29,9 @@ class NetworkDeviceUpdate(BaseModel):
     os_version: Optional[str] = None
     management_protocol: Optional[str] = None
     snmp_version: Optional[str] = None
-    snmp_community: Optional[str] = None
+    snmp_community: Optional[str] = None  # AES-256-GCM at write
     ssh_username: Optional[str] = None
-    ssh_password: Optional[str] = None
+    ssh_password: Optional[str] = None  # AES-256-GCM at write (PR #100)
     enabled: Optional[bool] = None
     poll_interval_seconds: Optional[int] = None
 
