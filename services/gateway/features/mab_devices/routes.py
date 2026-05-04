@@ -1,4 +1,13 @@
-"""HTTP routes for the mab_devices feature (Layer 3)."""
+"""HTTP routes for the mab_devices feature (Layer 3).
+
+Route declaration order matters in FastAPI. All static-path routes
+(/check/..., /bulk-import, /import-csv, /export-csv) MUST be declared
+BEFORE the /{device_id} catch-all, otherwise a request like
+GET /export-csv matches /{device_id} first and returns
+`uuid_parsing` 422 instead of running the export. PR #98 reorganised
+the file after exactly that bug bit production right after PR #97
+deploy.
+"""
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, Query, Request
@@ -18,6 +27,10 @@ def _client_ip(req: Request) -> str | None:
     return req.client.host if req.client else None
 
 
+# ---------------------------------------------------------------------------
+# List + create on the collection
+# ---------------------------------------------------------------------------
+
 @router.get("")
 async def list_mab_devices(
     enabled: bool | None = None,
@@ -35,27 +48,6 @@ async def list_mab_devices(
         device_type=device_type,
         page=page,
         page_size=page_size,
-    )
-
-
-@router.get("/check/{mac_address}")
-async def check_mab_device(
-    mac_address: str,
-    db: AsyncSession = Depends(get_db),
-):
-    """Quick MAC lookup for FreeRADIUS authorize hook. Unauthenticated by design."""
-    return await service.check_mac_for_radius(db, raw_mac=mac_address)
-
-
-@router.get("/{device_id}")
-async def get_mab_device(
-    device_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    user: dict = Depends(get_current_user),
-):
-    """Get a specific MAB device."""
-    return await service.get_mab_device(
-        db, tenant_id=user["tenant_id"], device_id=device_id,
     )
 
 
@@ -80,36 +72,18 @@ async def create_mab_device(
     )
 
 
-@router.put("/{device_id}")
-async def update_mab_device(
-    device_id: UUID,
-    req: MabDeviceUpdate,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: dict = Depends(require_admin),
-):
-    """Update a MAB device (admin only)."""
-    return await service.update_mab_device(
-        db, user,
-        device_id=device_id,
-        updates=req.model_dump(exclude_unset=True),
-        client_ip=_client_ip(request),
-    )
+# ---------------------------------------------------------------------------
+# Static sub-paths — MUST come before /{device_id} so FastAPI's
+# declaration-order match doesn't try to parse "export-csv" as a UUID.
+# ---------------------------------------------------------------------------
 
-
-@router.delete("/{device_id}", status_code=204)
-async def delete_mab_device(
-    device_id: UUID,
-    request: Request,
+@router.get("/check/{mac_address}")
+async def check_mab_device(
+    mac_address: str,
     db: AsyncSession = Depends(get_db),
-    user: dict = Depends(require_admin),
 ):
-    """Remove a device from the MAB whitelist (admin only)."""
-    await service.delete_mab_device(
-        db, user,
-        device_id=device_id,
-        client_ip=_client_ip(request),
-    )
+    """Quick MAC lookup for FreeRADIUS authorize hook. Unauthenticated by design."""
+    return await service.check_mac_for_radius(db, raw_mac=mac_address)
 
 
 @router.post("/bulk-import", status_code=201)
@@ -172,4 +146,53 @@ async def export_csv_mab_devices(
         headers={
             "Content-Disposition": 'attachment; filename="mab-devices.csv"',
         },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-device CRUD — these must come LAST because /{device_id} is a
+# catch-all that would otherwise swallow the static paths above.
+# ---------------------------------------------------------------------------
+
+@router.get("/{device_id}")
+async def get_mab_device(
+    device_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Get a specific MAB device."""
+    return await service.get_mab_device(
+        db, tenant_id=user["tenant_id"], device_id=device_id,
+    )
+
+
+@router.put("/{device_id}")
+async def update_mab_device(
+    device_id: UUID,
+    req: MabDeviceUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_admin),
+):
+    """Update a MAB device (admin only)."""
+    return await service.update_mab_device(
+        db, user,
+        device_id=device_id,
+        updates=req.model_dump(exclude_unset=True),
+        client_ip=_client_ip(request),
+    )
+
+
+@router.delete("/{device_id}", status_code=204)
+async def delete_mab_device(
+    device_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(require_admin),
+):
+    """Remove a device from the MAB whitelist (admin only)."""
+    await service.delete_mab_device(
+        db, user,
+        device_id=device_id,
+        client_ip=_client_ip(request),
     )
