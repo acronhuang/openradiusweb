@@ -6,6 +6,7 @@ from typing import Any
 from orw_common.logging import get_logger
 from orw_common import nats_client
 from orw_common.database import get_db_context
+from orw_common.secrets import decrypt_secret
 
 log = get_logger("ssh_manager")
 
@@ -119,21 +120,41 @@ class SSHManager:
         return await loop.run_in_executor(None, _run)
 
     async def _get_ssh_credentials(self, device_id: str) -> dict:
-        """Get SSH credentials from database/Vault."""
+        """Read the SSH login user + decrypted password from
+        network_devices.
+
+        Schema: PR #100 / migration 006 added `ssh_username` (plaintext)
+        + `ssh_password_encrypted` (AES-256-GCM via orw_common.secrets).
+        Pre-PR-#100 the original implementation queried the unused
+        `ssh_credential_ref` placeholder column and returned hardcoded
+        empty creds — so every SSH-based action (port bounce, etc.)
+        silently failed. PR #100 fixes this end-to-end.
+
+        Raises ValueError if the device has no SSH user set; the
+        caller (handle_bounce_port etc.) catches and logs it as a
+        per-request failure rather than crashing the worker loop.
+        """
         from sqlalchemy import text
         async with get_db_context() as db:
             result = await db.execute(
                 text(
-                    "SELECT ssh_credential_ref FROM network_devices "
-                    "WHERE id = :id"
+                    "SELECT ssh_username, ssh_password_encrypted "
+                    "FROM network_devices WHERE id = :id"
                 ),
                 {"id": device_id},
             )
             row = result.first()
-            # TODO: Look up in Vault using credential_ref
-            if not row or not row[0]:
-                raise ValueError(f"No SSH credentials configured for device {device_id}")
-            return {"username": "", "password": ""}
+            if not row:
+                raise ValueError(f"network_device {device_id} not found")
+            username, ciphertext = row
+            if not username:
+                raise ValueError(
+                    f"No SSH credentials configured for device {device_id}. "
+                    f"Set ssh_username + ssh_password on the device row "
+                    f"(via API POST /network-devices or the UI)."
+                )
+            password = decrypt_secret(ciphertext) or ""
+            return {"username": username, "password": password}
 
     def _get_bounce_commands(self, vendor: str, port_name: str) -> list[str]:
         """Get vendor-specific port bounce commands."""

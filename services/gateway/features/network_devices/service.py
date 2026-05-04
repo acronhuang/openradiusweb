@@ -99,6 +99,8 @@ async def create_network_device(
         management_protocol=fields["management_protocol"],
         snmp_version=fields.get("snmp_version"),
         snmp_community=fields.get("snmp_community"),
+        ssh_username=fields.get("ssh_username"),
+        ssh_password=fields.get("ssh_password"),
         poll_interval_seconds=fields["poll_interval_seconds"],
     )
     await events.publish_poll_requested(
